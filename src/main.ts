@@ -20,6 +20,8 @@ async function bootstrap() {
     'http://localhost:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
+    'https://www.talkrix.com',
+    'https://talkrix.com',
     process.env.FRONTEND_URL, // Production frontend URL from env
   ].filter(Boolean); // Remove undefined values
 
@@ -28,11 +30,12 @@ async function bootstrap() {
       // Allow requests with no origin (like mobile apps, curl, etc.)
       if (!origin) return callback(null, true);
       
-      // Allow any vercel.app domain or configured origins
+      // Allow any vercel.app domain, talkrix.com, or configured origins
       if (
         allowedOrigins.includes(origin) ||
         origin.endsWith('.vercel.app') ||
-        origin.endsWith('.netlify.app')
+        origin.endsWith('.netlify.app') ||
+        origin.endsWith('.talkrix.com')
       ) {
         return callback(null, true);
       }
