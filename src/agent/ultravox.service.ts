@@ -139,4 +139,43 @@ export class UltravoxService {
       return this.responseHelper.error('Failed to delete agent', err?.response?.status || 500, errorDetails);
     }
   }
+
+  async getVoices(search?: string): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+      
+      // Build query params
+      const params = new URLSearchParams();
+      if (search && search.trim()) {
+        params.append('search', search.trim());
+      }
+      params.append('pageSize', '100'); // Get more results
+      
+      const url = `https://api.ultravox.ai/api/voices${params.toString() ? '?' + params.toString() : ''}`;
+      
+      const response = await this.httpService.get(
+        url,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+          },
+        },
+      ).toPromise();
+
+      if (!response || !response.data) {
+        this.logger.warn('Ultravox API did not return voices data');
+        return this.responseHelper.error('Ultravox API did not return voices data', 502);
+      }
+
+      this.logger.log(`Voices fetched from Ultravox${search ? ` with search: ${search}` : ''}`);
+      return this.responseHelper.success(response.data, 'Voices fetched');
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error in getVoices', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to fetch voices', err?.response?.status || 500, errorDetails);
+    }
+  }
 }

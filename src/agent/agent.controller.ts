@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, UseGuards, Req, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, UseGuards, Req, Inject, Query } from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { Agent } from './agent.schema';
 import { UltravoxService } from './ultravox.service';
@@ -57,6 +57,18 @@ export class AgentController {
     } catch (err) {
       this.logger.error('Error creating agent via Ultravox', err);
       return this.responseHelper.error('Failed to create agent', 500, err?.message || err);
+    }
+  }
+
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get('voices')
+  async getVoices(@Query('search') search?: string) {
+    try {
+      const voices = await this.ultravoxService.getVoices(search);
+      return voices;
+    } catch (err) {
+      this.logger.error('Error fetching voices', err);
+      return this.responseHelper.error('Failed to fetch voices', 500, err?.message || err);
     }
   }
 
