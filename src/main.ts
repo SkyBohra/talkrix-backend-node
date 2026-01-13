@@ -15,11 +15,33 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   app.useGlobalFilters(new AllExceptionsFilter());
   
-  // Enable CORS for frontend
+  // Enable CORS for frontend (local and production)
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+    process.env.FRONTEND_URL, // Production frontend URL from env
+  ].filter(Boolean); // Remove undefined values
+
   app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3000', 'http://127.0.0.1:3001'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Allow any vercel.app domain or configured origins
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.netlify.app')
+      ) {
+        return callback(null, true);
+      }
+      
+      callback(null, false);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   });
   
   console.log('MONGO_URI:', configService.get('MONGO_URI'));
