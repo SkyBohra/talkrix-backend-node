@@ -2,6 +2,20 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
 
 @Schema({ _id: false })
+export class VADSettings {
+  @Prop()
+  turnEndpointDelay: string;
+  @Prop()
+  minimumTurnDuration: string;
+  @Prop()
+  minimumInterruptionDuration: string;
+  @Prop()
+  frameActivationThreshold: number;
+}
+
+export const VADSettingsSchema = SchemaFactory.createForClass(VADSettings);
+
+@Schema({ _id: false })
 export class CallTemplate {
   @Prop()
   name: string;
@@ -17,8 +31,8 @@ export class CallTemplate {
   joinTimeout: string;
   @Prop()
   maxDuration: string;
-  @Prop({ type: Object })
-  vadSettings: Record<string, any>;
+  @Prop({ type: VADSettingsSchema })
+  vadSettings: VADSettings;
   @Prop()
   recordingEnabled: boolean;
   @Prop({ type: Object })

@@ -16,9 +16,87 @@ export class UltravoxService {
   async createAgentForUser(agentData: any, userId: string): Promise<StandardResponse> {
     try {
       const apiKey = process.env.ULTRAVOX_API_KEY;
+      
+      // Build the Ultravox API payload - only include fields that have values
+      const ultravoxPayload: any = {
+        name: agentData.name,
+      };
+
+      // Build callTemplate if provided
+      if (agentData.callTemplate) {
+        ultravoxPayload.callTemplate = {};
+        const ct = agentData.callTemplate;
+        
+        // Core fields
+        if (ct.name) ultravoxPayload.callTemplate.name = ct.name;
+        if (ct.systemPrompt) ultravoxPayload.callTemplate.systemPrompt = ct.systemPrompt;
+        if (ct.voice) ultravoxPayload.callTemplate.voice = ct.voice;
+        if (ct.model) ultravoxPayload.callTemplate.model = ct.model;
+        if (ct.temperature !== undefined) ultravoxPayload.callTemplate.temperature = ct.temperature;
+        
+        // Timing fields
+        if (ct.joinTimeout) ultravoxPayload.callTemplate.joinTimeout = ct.joinTimeout;
+        if (ct.maxDuration) ultravoxPayload.callTemplate.maxDuration = ct.maxDuration;
+        
+        // Output and language
+        if (ct.initialOutputMedium) ultravoxPayload.callTemplate.initialOutputMedium = ct.initialOutputMedium;
+        if (ct.languageHint) ultravoxPayload.callTemplate.languageHint = ct.languageHint;
+        if (ct.timeExceededMessage) ultravoxPayload.callTemplate.timeExceededMessage = ct.timeExceededMessage;
+        
+        // Recording
+        if (ct.recordingEnabled !== undefined) ultravoxPayload.callTemplate.recordingEnabled = ct.recordingEnabled;
+        
+        // First speaker settings
+        if (ct.firstSpeakerSettings) {
+          ultravoxPayload.callTemplate.firstSpeakerSettings = ct.firstSpeakerSettings;
+        }
+        
+        // VAD settings - only include if any fields are set
+        if (ct.vadSettings) {
+          const vad: any = {};
+          if (ct.vadSettings.turnEndpointDelay) vad.turnEndpointDelay = ct.vadSettings.turnEndpointDelay;
+          if (ct.vadSettings.minimumTurnDuration) vad.minimumTurnDuration = ct.vadSettings.minimumTurnDuration;
+          if (ct.vadSettings.minimumInterruptionDuration) vad.minimumInterruptionDuration = ct.vadSettings.minimumInterruptionDuration;
+          if (ct.vadSettings.frameActivationThreshold) vad.frameActivationThreshold = ct.vadSettings.frameActivationThreshold;
+          if (Object.keys(vad).length > 0) {
+            ultravoxPayload.callTemplate.vadSettings = vad;
+          }
+        }
+        
+        // Inactivity messages
+        if (ct.inactivityMessages && ct.inactivityMessages.length > 0) {
+          ultravoxPayload.callTemplate.inactivityMessages = ct.inactivityMessages;
+        }
+        
+        // External voice (for ElevenLabs, Cartesia, etc.)
+        if (ct.externalVoice) {
+          ultravoxPayload.callTemplate.externalVoice = ct.externalVoice;
+        }
+        
+        // Medium settings (for WebRTC, Twilio, etc.)
+        if (ct.medium) {
+          ultravoxPayload.callTemplate.medium = ct.medium;
+        }
+        
+        // Selected tools
+        if (ct.selectedTools && ct.selectedTools.length > 0) {
+          ultravoxPayload.callTemplate.selectedTools = ct.selectedTools;
+        }
+        
+        // Data connection
+        if (ct.dataConnection) {
+          ultravoxPayload.callTemplate.dataConnection = ct.dataConnection;
+        }
+        
+        // Context schema
+        if (ct.contextSchema) {
+          ultravoxPayload.callTemplate.contextSchema = ct.contextSchema;
+        }
+      }
+      
       const response = await this.httpService.post(
         'https://api.ultravox.ai/api/agents',
-        agentData,
+        ultravoxPayload,
         {
           headers: {
             'X-API-Key': apiKey,
@@ -38,7 +116,6 @@ export class UltravoxService {
         userId,
         name: agentData.name,
         callTemplate: agentData.callTemplate,
-        // Add other Ultravox fields here as needed
       });
       this.logger.log(`Ultravox agent created for user ${userId}`);
       return this.responseHelper.success(agent, 'Agent created', 201);
@@ -64,10 +141,87 @@ export class UltravoxService {
       const apiKey = process.env.ULTRAVOX_API_KEY;
       const ultravoxAgentId = agent.talkrixAgentId;
 
+      // Build the Ultravox API payload - only include fields that have values
+      const ultravoxPayload: any = {};
+      
+      if (updateData.name) ultravoxPayload.name = updateData.name;
+
+      // Build callTemplate if provided
+      if (updateData.callTemplate) {
+        ultravoxPayload.callTemplate = {};
+        const ct = updateData.callTemplate;
+        
+        // Core fields
+        if (ct.name) ultravoxPayload.callTemplate.name = ct.name;
+        if (ct.systemPrompt) ultravoxPayload.callTemplate.systemPrompt = ct.systemPrompt;
+        if (ct.voice) ultravoxPayload.callTemplate.voice = ct.voice;
+        if (ct.model) ultravoxPayload.callTemplate.model = ct.model;
+        if (ct.temperature !== undefined) ultravoxPayload.callTemplate.temperature = ct.temperature;
+        
+        // Timing fields
+        if (ct.joinTimeout) ultravoxPayload.callTemplate.joinTimeout = ct.joinTimeout;
+        if (ct.maxDuration) ultravoxPayload.callTemplate.maxDuration = ct.maxDuration;
+        
+        // Output and language
+        if (ct.initialOutputMedium) ultravoxPayload.callTemplate.initialOutputMedium = ct.initialOutputMedium;
+        if (ct.languageHint) ultravoxPayload.callTemplate.languageHint = ct.languageHint;
+        if (ct.timeExceededMessage) ultravoxPayload.callTemplate.timeExceededMessage = ct.timeExceededMessage;
+        
+        // Recording
+        if (ct.recordingEnabled !== undefined) ultravoxPayload.callTemplate.recordingEnabled = ct.recordingEnabled;
+        
+        // First speaker settings
+        if (ct.firstSpeakerSettings) {
+          ultravoxPayload.callTemplate.firstSpeakerSettings = ct.firstSpeakerSettings;
+        }
+        
+        // VAD settings - only include if any fields are set
+        if (ct.vadSettings) {
+          const vad: any = {};
+          if (ct.vadSettings.turnEndpointDelay) vad.turnEndpointDelay = ct.vadSettings.turnEndpointDelay;
+          if (ct.vadSettings.minimumTurnDuration) vad.minimumTurnDuration = ct.vadSettings.minimumTurnDuration;
+          if (ct.vadSettings.minimumInterruptionDuration) vad.minimumInterruptionDuration = ct.vadSettings.minimumInterruptionDuration;
+          if (ct.vadSettings.frameActivationThreshold) vad.frameActivationThreshold = ct.vadSettings.frameActivationThreshold;
+          if (Object.keys(vad).length > 0) {
+            ultravoxPayload.callTemplate.vadSettings = vad;
+          }
+        }
+        
+        // Inactivity messages
+        if (ct.inactivityMessages && ct.inactivityMessages.length > 0) {
+          ultravoxPayload.callTemplate.inactivityMessages = ct.inactivityMessages;
+        }
+        
+        // External voice
+        if (ct.externalVoice) {
+          ultravoxPayload.callTemplate.externalVoice = ct.externalVoice;
+        }
+        
+        // Medium settings
+        if (ct.medium) {
+          ultravoxPayload.callTemplate.medium = ct.medium;
+        }
+        
+        // Selected tools
+        if (ct.selectedTools && ct.selectedTools.length > 0) {
+          ultravoxPayload.callTemplate.selectedTools = ct.selectedTools;
+        }
+        
+        // Data connection
+        if (ct.dataConnection) {
+          ultravoxPayload.callTemplate.dataConnection = ct.dataConnection;
+        }
+        
+        // Context schema
+        if (ct.contextSchema) {
+          ultravoxPayload.callTemplate.contextSchema = ct.contextSchema;
+        }
+      }
+
       // Update agent in Ultravox
       const response = await this.httpService.patch(
         `https://api.ultravox.ai/api/agents/${ultravoxAgentId}`,
-        updateData,
+        ultravoxPayload,
         {
           headers: {
             'X-API-Key': apiKey,
