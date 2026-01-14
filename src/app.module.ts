@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { AgentModule } from './agent/agent.module';
+import { ToolModule } from './tool/tool.module';
 import { SharedModule } from './shared.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { SharedModule } from './shared.module';
     UserModule,
     AuthModule,
     AgentModule,
+    ToolModule,
     SharedModule,
   ],
   controllers: [AppController],
