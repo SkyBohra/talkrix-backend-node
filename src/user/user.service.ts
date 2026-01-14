@@ -12,6 +12,7 @@ export class UserService {
   async create(email: string, password: string, name: string) {
     const hash = await bcrypt.hash(password, 10);
     const apiKey = generateApiKey();
+    // Default maxCorpusLimit is 1 (set in schema), can be changed per user in database
     const user = new this.userModel({ email, password: hash, name, apiKey });
     return user.save();
   }
@@ -22,5 +23,13 @@ export class UserService {
 
   async findByApiKey(apiKey: string) {
     return this.userModel.findOne({ apiKey });
+  }
+
+  async findById(id: string) {
+    return this.userModel.findById(id);
+  }
+
+  async updateMaxCorpusLimit(userId: string, limit: number) {
+    return this.userModel.findByIdAndUpdate(userId, { maxCorpusLimit: limit }, { new: true });
   }
 }

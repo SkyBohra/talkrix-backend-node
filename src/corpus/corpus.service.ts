@@ -36,6 +36,13 @@ export class CorpusService {
   }
 
   /**
+   * Count corpora by user ID
+   */
+  async countCorporaByUserId(userId: string): Promise<number> {
+    return this.corpusModel.countDocuments({ userId }).exec();
+  }
+
+  /**
    * Find a corpus by local ID
    */
   async findCorpusById(id: string): Promise<Corpus | null> {

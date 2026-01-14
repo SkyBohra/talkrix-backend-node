@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { CorpusService } from './corpus.service';
+import { UserService } from '../user/user.service';
 import { ResponseHelper, StandardResponse } from '../response.helper';
 import { AppLogger } from '../app.logger';
 
@@ -11,6 +12,7 @@ export class TalkrixCorpusService {
   constructor(
     private readonly httpService: HttpService,
     private readonly corpusService: CorpusService,
+    private readonly userService: UserService,
     private readonly responseHelper: ResponseHelper,
     private readonly logger: AppLogger,
   ) {}
@@ -33,6 +35,23 @@ export class TalkrixCorpusService {
    */
   async createCorpus(corpusData: { name: string; description?: string }, userId: string): Promise<StandardResponse> {
     try {
+      // Check user's corpus limit
+      const user = await this.userService.findById(userId);
+      if (!user) {
+        return this.responseHelper.error('User not found', 404);
+      }
+
+      const currentCorpusCount = await this.corpusService.countCorporaByUserId(userId);
+      const maxLimit = user.maxCorpusLimit ?? 1;
+
+      if (currentCorpusCount >= maxLimit) {
+        this.logger.warn(`User ${userId} has reached corpus limit: ${currentCorpusCount}/${maxLimit}`);
+        return this.responseHelper.error(
+          `You have reached your maximum RAG limit of ${maxLimit}. Please delete an existing RAG or upgrade your plan.`,
+          403,
+        );
+      }
+
       // Create corpus in Ultravox
       const response = await this.httpService.post(
         `${ULTRAVOX_API_BASE}/corpora`,
