@@ -9,6 +9,7 @@ import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { AgentModule } from './agent/agent.module';
 import { ToolModule } from './tool/tool.module';
+import { CorpusModule } from './corpus/corpus.module';
 import { SharedModule } from './shared.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { SharedModule } from './shared.module';
     AuthModule,
     AgentModule,
     ToolModule,
+    CorpusModule,
     SharedModule,
   ],
   controllers: [AppController],
