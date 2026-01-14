@@ -136,4 +136,30 @@ export class AgentController {
       return this.responseHelper.error('Failed to delete agent', 500, err?.message || err);
     }
   }
+
+  /**
+   * Create a call to test an agent
+   * Uses the agent's talkrixAgentId (Ultravox agent ID) to create a call
+   */
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/call')
+  async createCall(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    try {
+      // Get the agent to retrieve the Ultravox agent ID
+      const agent = await this.agentService.findOne(id);
+      if (!agent) {
+        return this.responseHelper.error('Agent not found', 404);
+      }
+
+      const result = await this.ultravoxService.createCallForAgent(agent.talkrixAgentId, {
+        maxDuration: body.maxDuration || '300s', // Default 5 minutes for testing
+        recordingEnabled: body.recordingEnabled ?? false,
+      });
+      this.logger.log(`Call created for agent ${id}`);
+      return result;
+    } catch (err) {
+      this.logger.error('Error creating call', err);
+      return this.responseHelper.error('Failed to create call', 500, err?.message || err);
+    }
+  }
 }

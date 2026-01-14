@@ -332,4 +332,58 @@ export class UltravoxService {
       return this.responseHelper.error('Failed to fetch voices', err?.response?.status || 500, errorDetails);
     }
   }
+
+  /**
+   * Create a call for testing an agent
+   * POST /api/agents/{agent_id}/calls
+   * Returns joinUrl that can be used with Ultravox Client SDK
+   */
+  async createCallForAgent(agentId: string, options?: { 
+    maxDuration?: string;
+    recordingEnabled?: boolean;
+  }): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+      
+      // Build the call payload - minimal for testing
+      const callPayload: any = {};
+      
+      if (options?.maxDuration) {
+        callPayload.maxDuration = options.maxDuration;
+      }
+      if (options?.recordingEnabled !== undefined) {
+        callPayload.recordingEnabled = options.recordingEnabled;
+      }
+
+      const response = await this.httpService.post(
+        `https://api.ultravox.ai/api/agents/${agentId}/calls`,
+        callPayload,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        },
+      ).toPromise();
+
+      if (!response || !response.data) {
+        this.logger.warn('Ultravox API did not return call data');
+        return this.responseHelper.error('Ultravox API did not return call data', 502);
+      }
+
+      this.logger.log(`Call created for agent ${agentId}, joinUrl: ${response.data.joinUrl}`);
+      return this.responseHelper.success({
+        callId: response.data.callId,
+        joinUrl: response.data.joinUrl,
+        created: response.data.created,
+      }, 'Call created', 201);
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error in createCallForAgent', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to create call', err?.response?.status || 500, errorDetails);
+    }
+  }
 }
