@@ -15,15 +15,18 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   app.useGlobalFilters(new AllExceptionsFilter());
   
-  // Enable CORS for all origins (development mode)
+  // Enable CORS for all origins
   app.enableCors({
-    origin: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
   
-  console.log('MONGO_URI:', configService.get('MONGO_URI'));
+ 
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
