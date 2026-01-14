@@ -83,6 +83,42 @@ export class UltravoxService {
           ultravoxPayload.callTemplate.selectedTools = ct.selectedTools;
         }
         
+        // If corpusId is provided, add queryCorpus tool with the corpus
+        if (ct.corpusId) {
+          // Initialize selectedTools if not exists
+          if (!ultravoxPayload.callTemplate.selectedTools) {
+            ultravoxPayload.callTemplate.selectedTools = [];
+          }
+          // Check if queryCorpus tool already exists
+          const hasQueryCorpus = ultravoxPayload.callTemplate.selectedTools.some(
+            (tool: any) => tool.toolName === 'queryCorpus'
+          );
+          if (!hasQueryCorpus) {
+            ultravoxPayload.callTemplate.selectedTools.push({
+              toolName: 'queryCorpus',
+              parameterOverrides: {
+                corpusId: ct.corpusId,
+              },
+            });
+          } else {
+            // Update existing queryCorpus tool with the corpusId
+            ultravoxPayload.callTemplate.selectedTools = ultravoxPayload.callTemplate.selectedTools.map(
+              (tool: any) => {
+                if (tool.toolName === 'queryCorpus') {
+                  return {
+                    ...tool,
+                    parameterOverrides: {
+                      ...tool.parameterOverrides,
+                      corpusId: ct.corpusId,
+                    },
+                  };
+                }
+                return tool;
+              }
+            );
+          }
+        }
+        
         // Data connection
         if (ct.dataConnection) {
           ultravoxPayload.callTemplate.dataConnection = ct.dataConnection;
@@ -205,6 +241,42 @@ export class UltravoxService {
         // Selected tools
         if (ct.selectedTools && ct.selectedTools.length > 0) {
           ultravoxPayload.callTemplate.selectedTools = ct.selectedTools;
+        }
+        
+        // If corpusId is provided, add queryCorpus tool with the corpus
+        if (ct.corpusId) {
+          // Initialize selectedTools if not exists
+          if (!ultravoxPayload.callTemplate.selectedTools) {
+            ultravoxPayload.callTemplate.selectedTools = [];
+          }
+          // Check if queryCorpus tool already exists
+          const hasQueryCorpus = ultravoxPayload.callTemplate.selectedTools.some(
+            (tool: any) => tool.toolName === 'queryCorpus'
+          );
+          if (!hasQueryCorpus) {
+            ultravoxPayload.callTemplate.selectedTools.push({
+              toolName: 'queryCorpus',
+              parameterOverrides: {
+                corpusId: ct.corpusId,
+              },
+            });
+          } else {
+            // Update existing queryCorpus tool with the corpusId
+            ultravoxPayload.callTemplate.selectedTools = ultravoxPayload.callTemplate.selectedTools.map(
+              (tool: any) => {
+                if (tool.toolName === 'queryCorpus') {
+                  return {
+                    ...tool,
+                    parameterOverrides: {
+                      ...tool.parameterOverrides,
+                      corpusId: ct.corpusId,
+                    },
+                  };
+                }
+                return tool;
+              }
+            );
+          }
         }
         
         // Data connection

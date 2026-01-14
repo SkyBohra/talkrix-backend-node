@@ -55,6 +55,8 @@ export class CallTemplate {
   inactivityMessages: Record<string, any>[];
   @Prop({ type: [Object] })
   selectedTools: Record<string, any>[];
+  @Prop()
+  corpusId: string;
   @Prop({ type: Object })
   dataConnection: Record<string, any>;
   @Prop({ type: Object })
