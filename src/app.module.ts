@@ -13,6 +13,7 @@ import { CorpusModule } from './corpus/corpus.module';
 import { CallHistoryModule } from './call-history/call-history.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { SharedModule } from './shared.module';
+import { CampaignModule } from './campaign/campaign.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { SharedModule } from './shared.module';
     CallHistoryModule,
     WebhookModule,
     SharedModule,
+    CampaignModule,
   ],
   controllers: [AppController],
   providers: [AppService],
