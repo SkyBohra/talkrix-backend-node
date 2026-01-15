@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { CallHistory, CallStatus, CallType } from './call-history.schema';
+import { CallHistory, CallStatus, CallType, EndReason } from './call-history.schema';
 
 export interface CallStats {
   totalCalls: number;
@@ -30,6 +30,11 @@ export interface UpdateCallHistoryDto {
   startedAt?: Date;
   endedAt?: Date;
   durationSeconds?: number;
+  billedDuration?: string;
+  billingStatus?: string;
+  summary?: string;
+  shortSummary?: string;
+  endReason?: EndReason;
   recordingUrl?: string;
   callData?: Record<string, any>;
   metadata?: Record<string, any>;

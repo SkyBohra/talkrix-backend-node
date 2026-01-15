@@ -11,6 +11,7 @@ import { AgentModule } from './agent/agent.module';
 import { ToolModule } from './tool/tool.module';
 import { CorpusModule } from './corpus/corpus.module';
 import { CallHistoryModule } from './call-history/call-history.module';
+import { WebhookModule } from './webhook/webhook.module';
 import { SharedModule } from './shared.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { SharedModule } from './shared.module';
     ToolModule,
     CorpusModule,
     CallHistoryModule,
+    WebhookModule,
     SharedModule,
   ],
   controllers: [AppController],

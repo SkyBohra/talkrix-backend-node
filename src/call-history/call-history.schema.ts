@@ -3,6 +3,7 @@ import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type CallType = 'test' | 'inbound' | 'outbound';
 export type CallStatus = 'initiated' | 'in-progress' | 'completed' | 'missed' | 'failed';
+export type EndReason = 'unjoined' | 'hangup' | 'agent_hangup' | 'timeout' | 'connection_error' | 'system_error';
 
 @Schema({ timestamps: true })
 export class CallHistory extends Document {
@@ -41,6 +42,24 @@ export class CallHistory extends Document {
   @Prop({ default: 0 })
   durationSeconds: number;
 
+  // Billing information
+  @Prop()
+  billedDuration?: string;
+
+  @Prop()
+  billingStatus?: string;
+
+  // Call summary (from Ultravox API)
+  @Prop()
+  summary?: string;
+
+  @Prop()
+  shortSummary?: string;
+
+  // End reason
+  @Prop({ enum: ['unjoined', 'hangup', 'agent_hangup', 'timeout', 'connection_error', 'system_error'] })
+  endReason?: EndReason;
+
   // Recording info
   @Prop({ default: false })
   recordingEnabled: boolean;
@@ -48,7 +67,7 @@ export class CallHistory extends Document {
   @Prop()
   recordingUrl?: string;
 
-  // Call specific data
+  // Call specific data (internal use only, not returned in API)
   @Prop()
   joinUrl?: string;
 

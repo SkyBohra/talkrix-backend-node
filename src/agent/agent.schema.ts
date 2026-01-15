@@ -78,7 +78,9 @@ export class Agent extends Document {
 
   @Prop({ type: CallTemplateSchema, required: true })
   callTemplate: CallTemplate;
-  // Add other Ultravox fields here as needed
+
+  @Prop()
+  webhookId: string; // Ultravox webhook ID for this agent
 }
 
 export const AgentSchema = SchemaFactory.createForClass(Agent);

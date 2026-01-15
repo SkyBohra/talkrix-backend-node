@@ -53,6 +53,35 @@ APP_ENV=local npm run start
 - **Never commit real secrets or production credentials to version control.**
 - Use example values or keep sensitive files out of your repository.
 
+## Required Environment Variables
+
+```
+# Database
+MONGO_URI=mongodb://localhost:27017/talkrix
+
+# JWT Authentication
+JWT_SECRET=your-jwt-secret
+
+# Talkrix API (uses Ultravox as underlying service)
+ULTRAVOX_API_KEY=your-ultravox-api-key
+
+# Webhooks (for call event notifications)
+WEBHOOK_BASE_URL=https://your-domain.com  # Your backend's public URL (e.g., https://api.talkrix.com)
+TALKRIX_WEBHOOK_SECRET=your-webhook-secret  # Optional: Secret for webhook signature verification
+```
+
+### Webhook Configuration
+
+When `WEBHOOK_BASE_URL` is set, the backend will automatically create webhooks for each agent. These webhooks receive call events (`call.ended`, `call.billed`) and update call history automatically.
+
+Example:
+- If `WEBHOOK_BASE_URL=https://api.talkrix.com`, webhooks will be created pointing to `https://api.talkrix.com/webhook/talkrix`
+
+For local development with ngrok:
+```
+WEBHOOK_BASE_URL=https://abc123.ngrok.io
+```
+
 ---
 
 For any questions, see the main project README or contact the maintainer.

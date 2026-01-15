@@ -147,11 +147,35 @@ export class UltravoxService {
         return this.responseHelper.error('Ultravox API did not return agent data', 502);
       }
       const talkrixAgentId = response.data.agentId || response.data.id;
+      
+      // Create webhook for this agent to receive call events
+      let webhookId: string | undefined;
+      const webhookUrl = process.env.WEBHOOK_BASE_URL;
+      if (webhookUrl) {
+        try {
+          const webhookResult = await this.createWebhook({
+            url: `${webhookUrl}/webhook/talkrix`,
+            events: ['call.ended', 'call.billed'],
+            agentId: talkrixAgentId,
+            secrets: process.env.TALKRIX_WEBHOOK_SECRET ? [process.env.TALKRIX_WEBHOOK_SECRET] : undefined,
+          });
+          if (webhookResult.statusCode === 201 && webhookResult.data) {
+            webhookId = webhookResult.data.webhookId;
+            this.logger.log(`Webhook created for agent ${talkrixAgentId}: ${webhookId}`);
+          }
+        } catch (webhookErr) {
+          this.logger.warn(`Could not create webhook for agent: ${webhookErr?.message}`);
+        }
+      } else {
+        this.logger.warn('WEBHOOK_BASE_URL not configured, skipping webhook creation');
+      }
+      
       const agent = await this.agentService.create({
         talkrixAgentId,
         userId,
         name: agentData.name,
         callTemplate: agentData.callTemplate,
+        webhookId,
       });
       this.logger.log(`Ultravox agent created for user ${userId}`);
       return this.responseHelper.success(agent, 'Agent created', 201);
@@ -338,6 +362,16 @@ export class UltravoxService {
       const apiKey = process.env.ULTRAVOX_API_KEY;
       const ultravoxAgentId = agent.talkrixAgentId;
 
+      // Delete webhook for this agent if exists
+      if (agent.webhookId) {
+        try {
+          await this.deleteWebhook(agent.webhookId);
+          this.logger.log(`Webhook ${agent.webhookId} deleted for agent ${ultravoxAgentId}`);
+        } catch (webhookErr) {
+          this.logger.warn(`Could not delete webhook ${agent.webhookId}: ${webhookErr?.message}`);
+        }
+      }
+
       // Delete agent from Ultravox
       await this.httpService.delete(
         `https://api.ultravox.ai/api/agents/${ultravoxAgentId}`,
@@ -456,6 +490,181 @@ export class UltravoxService {
       this.logger.error('Error in createCallForAgent', err?.message || err);
       const errorDetails = err?.response?.data || err?.message || err;
       return this.responseHelper.error('Failed to create call', err?.response?.status || 500, errorDetails);
+    }
+  }
+
+  /**
+   * Get call details from Ultravox API
+   * GET /api/calls/{call_id}
+   * Returns call details including summary, billing, etc.
+   */
+  async getCallDetails(callId: string): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+
+      const response = await this.httpService.get(
+        `https://api.ultravox.ai/api/calls/${callId}`,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+          },
+        },
+      ).toPromise();
+
+      if (!response || !response.data) {
+        this.logger.warn('Ultravox API did not return call details');
+        return this.responseHelper.error('Ultravox API did not return call details', 502);
+      }
+
+      const data = response.data;
+      return this.responseHelper.success({
+        callId: data.callId,
+        created: data.created,
+        joined: data.joined,
+        ended: data.ended,
+        endReason: data.endReason,
+        billedDuration: data.billedDuration,
+        billingStatus: data.billingStatus,
+        summary: data.summary,
+        shortSummary: data.shortSummary,
+        recordingEnabled: data.recordingEnabled,
+        recordingUrl: data.recordingUrl || data.recording,
+      }, 'Call details fetched');
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error in getCallDetails', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to fetch call details', err?.response?.status || 500, errorDetails);
+    }
+  }
+
+  /**
+   * Create a webhook in Ultravox for an agent
+   * POST /api/webhooks
+   */
+  async createWebhook(options: {
+    url: string;
+    events: ('call.started' | 'call.joined' | 'call.ended' | 'call.billed')[];
+    agentId?: string;
+    secrets?: string[];
+  }): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+
+      const webhookPayload: any = {
+        url: options.url,
+        events: options.events,
+      };
+
+      if (options.agentId) {
+        webhookPayload.agentId = options.agentId;
+      }
+
+      if (options.secrets && options.secrets.length > 0) {
+        webhookPayload.secrets = options.secrets;
+      }
+
+      const response = await this.httpService.post(
+        'https://api.ultravox.ai/api/webhooks',
+        webhookPayload,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        },
+      ).toPromise();
+
+      if (!response || !response.data) {
+        this.logger.warn('Ultravox API did not return webhook data');
+        return this.responseHelper.error('Ultravox API did not return webhook data', 502);
+      }
+
+      this.logger.log(`Webhook created: ${response.data.webhookId} for events: ${options.events.join(', ')}`);
+      return this.responseHelper.success({
+        webhookId: response.data.webhookId,
+        url: response.data.url,
+        events: response.data.events,
+        agentId: response.data.agentId,
+        status: response.data.status,
+      }, 'Webhook created', 201);
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error creating webhook', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to create webhook', err?.response?.status || 500, errorDetails);
+    }
+  }
+
+  /**
+   * Delete a webhook from Ultravox
+   * DELETE /api/webhooks/{webhook_id}
+   */
+  async deleteWebhook(webhookId: string): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+
+      await this.httpService.delete(
+        `https://api.ultravox.ai/api/webhooks/${webhookId}`,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+          },
+        },
+      ).toPromise();
+
+      this.logger.log(`Webhook deleted: ${webhookId}`);
+      return this.responseHelper.success(null, 'Webhook deleted');
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error deleting webhook', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to delete webhook', err?.response?.status || 500, errorDetails);
+    }
+  }
+
+  /**
+   * List webhooks for an agent or all webhooks
+   * GET /api/webhooks
+   */
+  async listWebhooks(agentId?: string): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+
+      const params: any = {};
+      if (agentId) {
+        params.agentId = agentId;
+      }
+
+      const response = await this.httpService.get(
+        'https://api.ultravox.ai/api/webhooks',
+        {
+          headers: {
+            'X-API-Key': apiKey,
+          },
+          params,
+        },
+      ).toPromise();
+
+      if (!response || !response.data) {
+        this.logger.warn('Ultravox API did not return webhooks data');
+        return this.responseHelper.error('Ultravox API did not return webhooks data', 502);
+      }
+
+      return this.responseHelper.success(response.data, 'Webhooks fetched');
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error listing webhooks', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to list webhooks', err?.response?.status || 500, errorDetails);
     }
   }
 }

@@ -161,7 +161,7 @@ export class AgentController {
 
       const result = await this.ultravoxService.createCallForAgent(agent.talkrixAgentId, {
         maxDuration: body.maxDuration || '300s', // Default 5 minutes for testing
-        recordingEnabled: body.recordingEnabled ?? false,
+        recordingEnabled: body.recordingEnabled ?? true, // Recording enabled by default
       });
 
       // If call was created successfully, record it in call history
@@ -175,7 +175,7 @@ export class AgentController {
             agentName: agent.name,
             customerName: body.customerName,
             customerPhone: body.customerPhone,
-            recordingEnabled: body.recordingEnabled ?? false,
+            recordingEnabled: body.recordingEnabled ?? true, // Recording enabled by default
             joinUrl: result.data.joinUrl,
             callData: result.data,
           });
@@ -199,6 +199,7 @@ export class AgentController {
 
   /**
    * Update call status when call ends
+   * Fetches call details from Ultravox API to get summary, billing info, etc.
    */
   @UseGuards(AuthOrApiKeyGuard)
   @Put(':id/call/:callHistoryId/end')
@@ -208,6 +209,9 @@ export class AgentController {
     @Body() body: any,
   ) {
     try {
+      // First get the call history to retrieve the talkrixCallId (Ultravox call ID)
+      const existingCallHistory = await this.callHistoryService.findById(callHistoryId);
+      
       const updateData: any = {
         status: body.status || 'completed',
         endedAt: new Date(),
@@ -219,6 +223,64 @@ export class AgentController {
 
       if (body.recordingUrl) {
         updateData.recordingUrl = body.recordingUrl;
+      }
+
+      // Try to fetch call details from Ultravox API
+      if (existingCallHistory?.talkrixCallId) {
+        try {
+          const callDetails = await this.ultravoxService.getCallDetails(existingCallHistory.talkrixCallId);
+          
+          if (callDetails.statusCode === 200 && callDetails.data) {
+            const details = callDetails.data;
+            
+            // Update with Ultravox call details
+            if (details.summary) {
+              updateData.summary = details.summary;
+            }
+            if (details.shortSummary) {
+              updateData.shortSummary = details.shortSummary;
+            }
+            if (details.billingStatus) {
+              updateData.billingStatus = details.billingStatus;
+            }
+            if (details.endReason) {
+              updateData.endReason = details.endReason;
+            }
+            if (details.recordingUrl) {
+              updateData.recordingUrl = details.recordingUrl;
+            }
+            
+            // Calculate duration from Ultravox timestamps if not provided
+            if (!body.durationSeconds && details.joined && details.ended) {
+              const joined = new Date(details.joined);
+              const ended = new Date(details.ended);
+              updateData.durationSeconds = Math.round((ended.getTime() - joined.getTime()) / 1000);
+            }
+            
+            // Calculate billed duration - minimum 1 minute charge for any call with duration
+            // If Ultravox returns billedDuration, use it; otherwise calculate based on actual duration
+            const actualDuration = updateData.durationSeconds || body.durationSeconds || 0;
+            if (details.billedDuration && details.billedDuration !== '0s' && details.billedDuration !== '0') {
+              updateData.billedDuration = details.billedDuration;
+            } else if (actualDuration > 0) {
+              // Calculate billed minutes - minimum 1 minute, then round up to nearest minute
+              const billedMinutes = Math.max(1, Math.ceil(actualDuration / 60));
+              updateData.billedDuration = `${billedMinutes}m`;
+            }
+            
+            this.logger.log(`Fetched call details from Ultravox for call ${existingCallHistory.talkrixCallId}`);
+          }
+        } catch (detailsErr) {
+          // Log but don't fail if we can't fetch details
+          this.logger.warn(`Could not fetch call details from Ultravox: ${detailsErr?.message}`);
+        }
+      }
+
+      // If we still don't have billed duration but have actual duration, calculate it
+      const finalDuration = updateData.durationSeconds || body.durationSeconds || 0;
+      if (!updateData.billedDuration && finalDuration > 0) {
+        const billedMinutes = Math.max(1, Math.ceil(finalDuration / 60));
+        updateData.billedDuration = `${billedMinutes}m`;
       }
 
       const callHistory = await this.callHistoryService.update(callHistoryId, updateData);
