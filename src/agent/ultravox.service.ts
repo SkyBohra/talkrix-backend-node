@@ -97,11 +97,11 @@ export class UltravoxService {
             ultravoxPayload.callTemplate.selectedTools.push({
               toolName: 'queryCorpus',
               parameterOverrides: {
-                corpusId: ct.corpusId,
+                corpus_id: ct.corpusId,
               },
             });
           } else {
-            // Update existing queryCorpus tool with the corpusId
+            // Update existing queryCorpus tool with the corpus_id
             ultravoxPayload.callTemplate.selectedTools = ultravoxPayload.callTemplate.selectedTools.map(
               (tool: any) => {
                 if (tool.toolName === 'queryCorpus') {
@@ -109,7 +109,7 @@ export class UltravoxService {
                     ...tool,
                     parameterOverrides: {
                       ...tool.parameterOverrides,
-                      corpusId: ct.corpusId,
+                      corpus_id: ct.corpusId,
                     },
                   };
                 }
@@ -257,11 +257,11 @@ export class UltravoxService {
             ultravoxPayload.callTemplate.selectedTools.push({
               toolName: 'queryCorpus',
               parameterOverrides: {
-                corpusId: ct.corpusId,
+                corpus_id: ct.corpusId,
               },
             });
           } else {
-            // Update existing queryCorpus tool with the corpusId
+            // Update existing queryCorpus tool with the corpus_id
             ultravoxPayload.callTemplate.selectedTools = ultravoxPayload.callTemplate.selectedTools.map(
               (tool: any) => {
                 if (tool.toolName === 'queryCorpus') {
@@ -269,7 +269,7 @@ export class UltravoxService {
                     ...tool,
                     parameterOverrides: {
                       ...tool.parameterOverrides,
-                      corpusId: ct.corpusId,
+                      corpus_id: ct.corpusId,
                     },
                   };
                 }
