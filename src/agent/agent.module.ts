@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { HttpModule } from '@nestjs/axios';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -9,6 +9,7 @@ import { AgentController } from './agent.controller';
 import { UltravoxService } from './ultravox.service';
 import { UserModule } from '../user/user.module';
 import { SharedModule } from '../shared.module';
+import { CallHistoryModule } from '../call-history/call-history.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { SharedModule } from '../shared.module';
     }),
     UserModule,
     SharedModule,
+    forwardRef(() => CallHistoryModule),
   ],
   providers: [AgentService, UltravoxService],
   controllers: [AgentController],

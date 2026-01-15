@@ -5,6 +5,7 @@ import { UltravoxService } from './ultravox.service';
 import { AuthOrApiKeyGuard } from '../auth/auth-or-apikey.guard';
 import { ResponseHelper } from '../response.helper';
 import { AppLogger } from '../app.logger';
+import { CallHistoryService } from '../call-history/call-history.service';
 
 @Controller('agents')
 export class AgentController {
@@ -13,6 +14,7 @@ export class AgentController {
     private readonly ultravoxService: UltravoxService,
     private readonly responseHelper: ResponseHelper,
     private readonly logger: AppLogger,
+    private readonly callHistoryService: CallHistoryService,
   ) {}
 
   // Helper to extract user info from JWT token or API key
@@ -145,6 +147,12 @@ export class AgentController {
   @Post(':id/call')
   async createCall(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     try {
+      const userInfo = this.getUserFromRequest(req);
+      if (!userInfo || !userInfo.userId) {
+        this.logger.warn('userId missing in create call');
+        return this.responseHelper.error('Unauthorized', 401);
+      }
+
       // Get the agent to retrieve the Ultravox agent ID
       const agent = await this.agentService.findOne(id);
       if (!agent) {
@@ -155,11 +163,136 @@ export class AgentController {
         maxDuration: body.maxDuration || '300s', // Default 5 minutes for testing
         recordingEnabled: body.recordingEnabled ?? false,
       });
+
+      // If call was created successfully, record it in call history
+      if (result.statusCode === 201 && result.data) {
+        try {
+          const callHistory = await this.callHistoryService.create({
+            agentId: id,
+            userId: userInfo.userId,
+            talkrixCallId: result.data.callId,
+            callType: body.callType || 'test',
+            agentName: agent.name,
+            customerName: body.customerName,
+            customerPhone: body.customerPhone,
+            recordingEnabled: body.recordingEnabled ?? false,
+            joinUrl: result.data.joinUrl,
+            callData: result.data,
+          });
+          
+          // Add call history ID to the response
+          result.data.callHistoryId = callHistory._id;
+          this.logger.log(`Call history created for call ${result.data.callId}`);
+        } catch (historyErr) {
+          // Log but don't fail the request if history recording fails
+          this.logger.error('Error creating call history', historyErr);
+        }
+      }
+
       this.logger.log(`Call created for agent ${id}`);
       return result;
     } catch (err) {
       this.logger.error('Error creating call', err);
       return this.responseHelper.error('Failed to create call', 500, err?.message || err);
+    }
+  }
+
+  /**
+   * Update call status when call ends
+   */
+  @UseGuards(AuthOrApiKeyGuard)
+  @Put(':id/call/:callHistoryId/end')
+  async endCall(
+    @Param('id') id: string,
+    @Param('callHistoryId') callHistoryId: string,
+    @Body() body: any,
+  ) {
+    try {
+      const updateData: any = {
+        status: body.status || 'completed',
+        endedAt: new Date(),
+      };
+
+      if (body.durationSeconds !== undefined) {
+        updateData.durationSeconds = body.durationSeconds;
+      }
+
+      if (body.recordingUrl) {
+        updateData.recordingUrl = body.recordingUrl;
+      }
+
+      const callHistory = await this.callHistoryService.update(callHistoryId, updateData);
+      
+      if (!callHistory) {
+        return this.responseHelper.error('Call history not found', 404);
+      }
+
+      this.logger.log(`Call ${callHistoryId} ended with status ${updateData.status}`);
+      return this.responseHelper.success(callHistory, 'Call ended');
+    } catch (err) {
+      this.logger.error('Error ending call', err);
+      return this.responseHelper.error('Failed to end call', 500, err?.message || err);
+    }
+  }
+
+  /**
+   * Create an outbound call (with customer phone number)
+   */
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/outbound-call')
+  async createOutboundCall(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    try {
+      const userInfo = this.getUserFromRequest(req);
+      if (!userInfo || !userInfo.userId) {
+        this.logger.warn('userId missing in create outbound call');
+        return this.responseHelper.error('Unauthorized', 401);
+      }
+
+      // Validate required fields for outbound call
+      if (!body.customerPhone) {
+        return this.responseHelper.error('Customer phone number is required', 400);
+      }
+
+      // Get the agent to retrieve the Ultravox agent ID
+      const agent = await this.agentService.findOne(id);
+      if (!agent) {
+        return this.responseHelper.error('Agent not found', 404);
+      }
+
+      const result = await this.ultravoxService.createCallForAgent(agent.talkrixAgentId, {
+        maxDuration: body.maxDuration || '600s', // Default 10 minutes for outbound calls
+        recordingEnabled: body.recordingEnabled ?? true,
+      });
+
+      // If call was created successfully, record it in call history
+      if (result.statusCode === 201 && result.data) {
+        try {
+          const callHistory = await this.callHistoryService.create({
+            agentId: id,
+            userId: userInfo.userId,
+            talkrixCallId: result.data.callId,
+            callType: 'outbound',
+            agentName: agent.name,
+            customerName: body.customerName,
+            customerPhone: body.customerPhone,
+            recordingEnabled: body.recordingEnabled ?? true,
+            joinUrl: result.data.joinUrl,
+            callData: result.data,
+            metadata: body.metadata,
+          });
+          
+          result.data.callHistoryId = callHistory._id;
+          this.logger.log(`Outbound call history created for call ${result.data.callId}`);
+        } catch (historyErr) {
+          this.logger.error('Error creating call history', historyErr);
+        }
+      }
+
+      this.logger.log(`Outbound call created for agent ${id} to ${body.customerPhone}`);
+      return result;
+    } catch (err) {
+      this.logger.error('Error creating outbound call', err);
+      return this.responseHelper.error('Failed to create outbound call', 500, err?.message || err);
     }
   }
 }
