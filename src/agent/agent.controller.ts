@@ -88,8 +88,24 @@ export class AgentController {
 
   @UseGuards(AuthOrApiKeyGuard)
   @Get('user/:userId')
-  async findByUserId(@Param('userId') userId: string, @Req() req: any) {
+  async findByUserId(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Req() req?: any
+  ) {
     try {
+      // If pagination params are provided, use paginated query
+      if (page || limit) {
+        const result = await this.agentService.findByUserIdPaginated(
+          userId,
+          page ? parseInt(page, 10) : 1,
+          limit ? parseInt(limit, 10) : 10,
+        );
+        return this.responseHelper.success(result, 'Agents fetched');
+      }
+      
+      // Otherwise, return all agents (for dropdowns, etc.)
       const agents = await this.agentService.findByUserId(userId);
       return this.responseHelper.success(agents, 'Agents fetched');
     } catch (err) {

@@ -20,6 +20,29 @@ export class AgentService {
     return this.agentModel.find({ userId }).exec();
   }
 
+  // Find agents by user ID with pagination
+  async findByUserIdPaginated(userId: string, page: number = 1, limit: number = 10): Promise<{
+    agents: Agent[];
+    total: number;
+    page: number;
+    pages: number;
+    limit: number;
+  }> {
+    const skip = (page - 1) * limit;
+    const [agents, total] = await Promise.all([
+      this.agentModel.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
+      this.agentModel.countDocuments({ userId }).exec(),
+    ]);
+    
+    return {
+      agents,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      limit,
+    };
+  }
+
   async findOne(id: string): Promise<Agent | null> {
     return this.agentModel.findById(id).exec();
   }

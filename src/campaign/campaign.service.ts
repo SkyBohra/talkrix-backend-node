@@ -21,8 +21,31 @@ export class CampaignService {
     return this.campaignModel.find().sort({ createdAt: -1 }).exec();
   }
 
-  // Find campaigns by user ID
-  async findByUserId(userId: string): Promise<Campaign[]> {
+  // Find campaigns by user ID with pagination
+  async findByUserId(userId: string, page: number = 1, limit: number = 10): Promise<{
+    campaigns: Campaign[];
+    total: number;
+    page: number;
+    pages: number;
+    limit: number;
+  }> {
+    const skip = (page - 1) * limit;
+    const [campaigns, total] = await Promise.all([
+      this.campaignModel.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
+      this.campaignModel.countDocuments({ userId }).exec(),
+    ]);
+    
+    return {
+      campaigns,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      limit,
+    };
+  }
+
+  // Find campaigns by user ID (all, no pagination) - for dropdowns etc
+  async findAllByUserId(userId: string): Promise<Campaign[]> {
     return this.campaignModel.find({ userId }).sort({ createdAt: -1 }).exec();
   }
 

@@ -80,31 +80,47 @@ export class CampaignController {
     }
   }
 
-  // Get all campaigns for the authenticated user
+  // Get all campaigns for the authenticated user with pagination
   @UseGuards(AuthOrApiKeyGuard)
   @Get()
-  async findAll(@Req() req: any) {
+  async findAll(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     const userInfo = this.getUserFromRequest(req);
     if (!userInfo || !userInfo.userId) {
       return this.responseHelper.error('userId is required', 400);
     }
 
     try {
-      const campaigns = await this.campaignService.findByUserId(userInfo.userId);
-      return this.responseHelper.success(campaigns, 'Campaigns fetched');
+      const result = await this.campaignService.findByUserId(
+        userInfo.userId,
+        page ? parseInt(page, 10) : 1,
+        limit ? parseInt(limit, 10) : 10,
+      );
+      return this.responseHelper.success(result, 'Campaigns fetched');
     } catch (err) {
       this.logger.error('Error fetching campaigns', err);
       return this.responseHelper.error('Failed to fetch campaigns', 500, err?.message || err);
     }
   }
 
-  // Get campaigns by user ID (admin route)
+  // Get campaigns by user ID with pagination (admin route)
   @UseGuards(AuthOrApiKeyGuard)
   @Get('user/:userId')
-  async findByUserId(@Param('userId') userId: string) {
+  async findByUserId(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     try {
-      const campaigns = await this.campaignService.findByUserId(userId);
-      return this.responseHelper.success(campaigns, 'Campaigns fetched');
+      const result = await this.campaignService.findByUserId(
+        userId,
+        page ? parseInt(page, 10) : 1,
+        limit ? parseInt(limit, 10) : 10,
+      );
+      return this.responseHelper.success(result, 'Campaigns fetched');
     } catch (err) {
       this.logger.error('Error fetching campaigns by user', err);
       return this.responseHelper.error('Failed to fetch campaigns', 500, err?.message || err);
