@@ -39,8 +39,8 @@ export class CampaignSchedule {
   @Prop({ required: true })
   scheduledTime: string; // HH:mm format - start time
 
-  @Prop()
-  endTime?: string; // HH:mm format - end time (optional)
+  @Prop({ required: true })
+  endTime: string; // HH:mm format - end time (required)
 
   @Prop({ required: true })
   timezone: string; // e.g., 'America/New_York', 'Asia/Kolkata'
