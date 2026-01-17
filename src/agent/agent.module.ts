@@ -29,6 +29,6 @@ import { CallHistoryModule } from '../call-history/call-history.module';
   ],
   providers: [AgentService, UltravoxService],
   controllers: [AgentController],
-  exports: [AgentService],
+  exports: [AgentService, UltravoxService],
 })
 export class AgentModule {}

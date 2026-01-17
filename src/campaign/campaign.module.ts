@@ -9,6 +9,7 @@ import { CampaignController } from './campaign.controller';
 import { UserModule } from '../user/user.module';
 import { SharedModule } from '../shared.module';
 import { AgentModule } from '../agent/agent.module';
+import { CallHistoryModule } from '../call-history/call-history.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { AgentModule } from '../agent/agent.module';
     UserModule,
     SharedModule,
     forwardRef(() => AgentModule),
+    forwardRef(() => CallHistoryModule),
   ],
   providers: [CampaignService],
   controllers: [CampaignController],

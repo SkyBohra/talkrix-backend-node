@@ -237,6 +237,89 @@ export class SettingsController {
     }
   }
 
+  /**
+   * Get available phone numbers for outbound calls
+   * Returns all configured phone numbers grouped by provider
+   * GET /settings/phone-numbers
+   */
+  @Get('phone-numbers')
+  async getAvailablePhoneNumbers(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo?.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const user = await this.userService.findById(userInfo.userId);
+      if (!user) {
+        return this.responseHelper.error('User not found', 404);
+      }
+
+      const telephony = user.settings?.telephony || {};
+      const phoneNumbers: Array<{
+        provider: TelephonyProvider;
+        phoneNumber: string;
+        isConfigured: boolean;
+      }> = [];
+
+      // Collect Twilio phone numbers
+      const twilioConfigured = !!(telephony.twilioAccountSid && telephony.twilioAuthToken);
+      if (twilioConfigured && telephony.twilioPhoneNumbers?.length) {
+        telephony.twilioPhoneNumbers.forEach((phone: string) => {
+          if (phone && phone.trim()) {
+            phoneNumbers.push({
+              provider: 'twilio',
+              phoneNumber: phone.trim(),
+              isConfigured: true,
+            });
+          }
+        });
+      }
+
+      // Collect Plivo phone numbers
+      const plivoConfigured = !!(telephony.plivoAuthId && telephony.plivoAuthToken);
+      if (plivoConfigured && telephony.plivoPhoneNumbers?.length) {
+        telephony.plivoPhoneNumbers.forEach((phone: string) => {
+          if (phone && phone.trim()) {
+            phoneNumbers.push({
+              provider: 'plivo',
+              phoneNumber: phone.trim(),
+              isConfigured: true,
+            });
+          }
+        });
+      }
+
+      // Collect Telnyx phone numbers
+      const telnyxConfigured = !!(telephony.telnyxApiKey && telephony.telnyxConnectionId);
+      if (telnyxConfigured && telephony.telnyxPhoneNumbers?.length) {
+        telephony.telnyxPhoneNumbers.forEach((phone: string) => {
+          if (phone && phone.trim()) {
+            phoneNumbers.push({
+              provider: 'telnyx',
+              phoneNumber: phone.trim(),
+              isConfigured: true,
+            });
+          }
+        });
+      }
+
+      // Get unique providers that are configured
+      const configuredProviders = Array.from(new Set(phoneNumbers.map(p => p.provider)));
+
+      return this.responseHelper.success({
+        phoneNumbers,
+        configuredProviders,
+        totalNumbers: phoneNumbers.length,
+        // If only one number total, auto-select it
+        autoSelect: phoneNumbers.length === 1 ? phoneNumbers[0] : null,
+      }, 'Phone numbers fetched successfully');
+    } catch (err) {
+      this.logger.error('Failed to fetch phone numbers', err);
+      return this.responseHelper.error('Failed to fetch phone numbers', 500, err?.message || err);
+    }
+  }
+
   // Helper to mask sensitive strings
   private maskString(str: string): string {
     if (!str || str.length < 8) return '****';

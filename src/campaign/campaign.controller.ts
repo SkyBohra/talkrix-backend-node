@@ -20,6 +20,9 @@ import { AuthOrApiKeyGuard } from '../auth/auth-or-apikey.guard';
 import { ResponseHelper } from '../response.helper';
 import { AppLogger } from '../app.logger';
 import { AgentService } from '../agent/agent.service';
+import { UltravoxService } from '../agent/ultravox.service';
+import { UserService } from '../user/user.service';
+import { CallHistoryService } from '../call-history/call-history.service';
 import * as XLSX from 'xlsx';
 
 @Controller('campaigns')
@@ -29,6 +32,9 @@ export class CampaignController {
     private readonly responseHelper: ResponseHelper,
     private readonly logger: AppLogger,
     private readonly agentService: AgentService,
+    private readonly ultravoxService: UltravoxService,
+    private readonly userService: UserService,
+    private readonly callHistoryService: CallHistoryService,
   ) {}
 
   // Helper to extract user info from JWT token or API key
@@ -423,6 +429,200 @@ export class CampaignController {
     } catch (err) {
       this.logger.error('Error updating contact call status', err);
       return this.responseHelper.error('Failed to update contact call status', 500, err?.message || err);
+    }
+  }
+
+  // Trigger calls for on-demand campaign contacts
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/trigger-calls')
+  async triggerCalls(
+    @Param('id') id: string,
+    @Body() body: { contactIds: string[] },
+    @Req() req: any,
+  ) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      this.logger.warn('Trigger calls: Unauthorized - no user info');
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    this.logger.log(`Trigger calls request for campaign ${id} with ${body.contactIds?.length || 0} contact IDs`);
+
+    try {
+      // Get the campaign
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        this.logger.warn(`Trigger calls: Campaign ${id} not found`);
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify campaign is on-demand type
+      if (campaign.type !== 'ondemand') {
+        return this.responseHelper.error('Only on-demand campaigns support manual call triggering', 400);
+      }
+
+      // Verify contact IDs are provided
+      if (!body.contactIds || body.contactIds.length === 0) {
+        return this.responseHelper.error('Contact IDs are required', 400);
+      }
+
+      // Verify outbound phone number is configured
+      if (!campaign.outboundProvider || !campaign.outboundPhoneNumber) {
+        return this.responseHelper.error('Outbound phone number is not configured for this campaign', 400);
+      }
+
+      // Get user telephony settings
+      const user = await this.userService.findById(userInfo.userId);
+      if (!user) {
+        return this.responseHelper.error('User not found', 404);
+      }
+
+      const telephony = user.settings?.telephony;
+      if (!telephony) {
+        return this.responseHelper.error('Telephony settings not configured', 400);
+      }
+
+      // Get agent for this campaign
+      const agent = await this.agentService.findOne(campaign.agentId);
+      if (!agent) {
+        return this.responseHelper.error('Agent not found for this campaign', 404);
+      }
+
+      // Find contacts to call - allow pending or failed contacts to be called/retried
+      const contactsToCall = campaign.contacts.filter(
+        (c) => body.contactIds.includes(c._id?.toString() || '') && 
+               (c.callStatus === 'pending' || c.callStatus === 'failed')
+      );
+
+      if (contactsToCall.length === 0) {
+        // Provide more helpful error message
+        const selectedContacts = campaign.contacts.filter(
+          (c) => body.contactIds.includes(c._id?.toString() || '')
+        );
+        if (selectedContacts.length === 0) {
+          return this.responseHelper.error('No contacts found with the provided IDs', 400);
+        }
+        const statuses = selectedContacts.map(c => c.callStatus);
+        return this.responseHelper.error(
+          `No callable contacts found. Selected contacts have statuses: ${statuses.join(', ')}. Only pending or failed contacts can be called.`,
+          400
+        );
+      }
+
+      const results: Array<{
+        contactId: string;
+        contactName: string;
+        phoneNumber: string;
+        success: boolean;
+        callId?: string;
+        joinUrl?: string;
+        error?: string;
+      }> = [];
+
+      // Process each contact
+      for (const contact of contactsToCall) {
+        try {
+          // Update contact status to in-progress
+          await this.campaignService.updateContactCallStatus(id, contact._id!.toString(), 'in-progress');
+
+          // Create the call with the selected provider
+          const callResult = await this.ultravoxService.createOutboundCallWithMedium(
+            agent.talkrixAgentId,
+            {
+              provider: campaign.outboundProvider!,
+              fromPhoneNumber: campaign.outboundPhoneNumber!,
+              toPhoneNumber: contact.phoneNumber,
+              maxDuration: '600s',
+              recordingEnabled: true,
+              // Pass credentials based on provider
+              twilioAccountSid: telephony.twilioAccountSid,
+              twilioAuthToken: telephony.twilioAuthToken,
+              plivoAuthId: telephony.plivoAuthId,
+              plivoAuthToken: telephony.plivoAuthToken,
+              telnyxApiKey: telephony.telnyxApiKey,
+              telnyxConnectionId: telephony.telnyxConnectionId,
+            }
+          );
+
+          if (callResult.statusCode === 201 && callResult.data) {
+            // Create call history record
+            const callHistory = await this.callHistoryService.create({
+              agentId: campaign.agentId,
+              userId: userInfo.userId,
+              talkrixCallId: callResult.data.callId,
+              callType: 'outbound',
+              agentName: agent.name,
+              customerName: contact.name,
+              customerPhone: contact.phoneNumber,
+              recordingEnabled: true,
+              joinUrl: callResult.data.joinUrl,
+              callData: callResult.data,
+              metadata: {
+                campaignId: campaign._id,
+                campaignName: campaign.name,
+                provider: campaign.outboundProvider,
+                fromPhoneNumber: campaign.outboundPhoneNumber,
+              },
+            });
+
+            // Update contact with call ID
+            await this.campaignService.updateContactCallStatus(
+              id, 
+              contact._id!.toString(), 
+              'in-progress',
+              { callId: callResult.data.callId }
+            );
+
+            results.push({
+              contactId: contact._id!.toString(),
+              contactName: contact.name,
+              phoneNumber: contact.phoneNumber,
+              success: true,
+              callId: callResult.data.callId,
+              joinUrl: callResult.data.joinUrl,
+            });
+
+            this.logger.log(`Call triggered for contact ${contact.name} (${contact.phoneNumber}) in campaign ${campaign.name}`);
+          } else {
+            // Call creation failed
+            await this.campaignService.updateContactCallStatus(id, contact._id!.toString(), 'failed');
+            results.push({
+              contactId: contact._id!.toString(),
+              contactName: contact.name,
+              phoneNumber: contact.phoneNumber,
+              success: false,
+              error: callResult.message || 'Failed to create call',
+            });
+          }
+        } catch (contactErr) {
+          this.logger.error(`Error triggering call for contact ${contact.name}:`, contactErr);
+          await this.campaignService.updateContactCallStatus(id, contact._id!.toString(), 'failed');
+          results.push({
+            contactId: contact._id!.toString(),
+            contactName: contact.name,
+            phoneNumber: contact.phoneNumber,
+            success: false,
+            error: contactErr?.message || 'Unknown error',
+          });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failedCount = results.filter(r => !r.success).length;
+
+      this.logger.log(`Campaign ${campaign.name}: ${successCount} calls triggered, ${failedCount} failed`);
+
+      return this.responseHelper.success({
+        results,
+        summary: {
+          total: contactsToCall.length,
+          success: successCount,
+          failed: failedCount,
+        },
+      }, `${successCount} call(s) triggered successfully`);
+    } catch (err) {
+      this.logger.error('Error triggering calls', err);
+      return this.responseHelper.error('Failed to trigger calls', 500, err?.message || err);
     }
   }
 }

@@ -3,6 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { AgentService } from './agent.service';
 import { ResponseHelper, StandardResponse } from '../response.helper';
 import { AppLogger } from '../app.logger';
+import * as Twilio from 'twilio';
 
 @Injectable()
 export class UltravoxService {
@@ -490,6 +491,135 @@ export class UltravoxService {
       this.logger.error('Error in createCallForAgent', err?.message || err);
       const errorDetails = err?.response?.data || err?.message || err;
       return this.responseHelper.error('Failed to create call', err?.response?.status || 500, errorDetails);
+    }
+  }
+
+  /**
+   * Create an outbound call with telephony medium (Twilio, Plivo, Telnyx)
+   * 
+   * Flow:
+   * 1. Create Ultravox call with twilio medium (no outgoing) - this creates a joinUrl for incoming Twilio connection
+   * 2. Use Twilio SDK to create outbound call that connects to that joinUrl via TwiML <Stream>
+   * 
+   * The key is using medium.twilio WITHOUT outgoing - this tells Ultravox to expect a Twilio stream
+   * connection but doesn't require Ultravox to make the call. We make the call ourselves.
+   */
+  async createOutboundCallWithMedium(agentId: string, options: {
+    provider: 'twilio' | 'plivo' | 'telnyx';
+    fromPhoneNumber: string;
+    toPhoneNumber: string;
+    maxDuration?: string;
+    recordingEnabled?: boolean;
+    // Provider credentials
+    twilioAccountSid?: string;
+    twilioAuthToken?: string;
+    plivoAuthId?: string;
+    plivoAuthToken?: string;
+    telnyxApiKey?: string;
+    telnyxConnectionId?: string;
+  }): Promise<StandardResponse> {
+    try {
+      const apiKey = process.env.ULTRAVOX_API_KEY;
+      
+      // Build call payload with provider-specific medium (without outgoing)
+      // This tells Ultravox to expect an incoming stream connection from that provider
+      const callPayload: any = {
+        maxDuration: options.maxDuration || '600s',
+        recordingEnabled: options.recordingEnabled ?? true,
+        firstSpeakerSettings: {
+          agent: {},
+        },
+      };
+
+      // Set medium based on provider - empty object means "incoming" connection
+      if (options.provider === 'twilio') {
+        callPayload.medium = {
+          twilio: {}, // Empty = expect incoming Twilio stream
+        };
+      } else if (options.provider === 'plivo') {
+        callPayload.medium = {
+          plivo: {}, // Empty = expect incoming Plivo stream
+        };
+      } else if (options.provider === 'telnyx') {
+        callPayload.medium = {
+          telnyx: {}, // Empty = expect incoming Telnyx stream
+        };
+      }
+
+      this.logger.log(`Creating Ultravox call for agent ${agentId} with ${options.provider} medium (incoming mode)`);
+      const response = await this.httpService.post(
+        `https://api.ultravox.ai/api/agents/${agentId}/calls`,
+        callPayload,
+        {
+          headers: {
+            'X-API-Key': apiKey,
+            'Content-Type': 'application/json',
+          },
+        },
+      ).toPromise();
+
+      if (!response || !response.data || !response.data.joinUrl) {
+        this.logger.warn('Ultravox API did not return call data or joinUrl');
+        return this.responseHelper.error('Ultravox API did not return call data', 502);
+      }
+
+      const ultravoxCallId = response.data.callId;
+      const joinUrl = response.data.joinUrl;
+      this.logger.log(`Ultravox call created: ${ultravoxCallId}, joinUrl: ${joinUrl}`);
+
+      // Step 2: Use provider SDK to create outbound call connected to the joinUrl
+      let providerCallSid: string | undefined;
+
+      if (options.provider === 'twilio') {
+        if (!options.twilioAccountSid || !options.twilioAuthToken) {
+          return this.responseHelper.error('Twilio credentials are required', 400);
+        }
+
+        const twilioClient = Twilio.default(options.twilioAccountSid, options.twilioAuthToken);
+        
+        // Create TwiML that connects to the Ultravox WebSocket using <Stream>
+        // The joinUrl from Ultravox is designed to receive Twilio's mulaw audio format
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${joinUrl}" />
+  </Connect>
+</Response>`;
+
+        this.logger.log(`Creating Twilio outbound call from ${options.fromPhoneNumber} to ${options.toPhoneNumber}`);
+        this.logger.log(`TwiML Stream URL: ${joinUrl}`);
+        
+        const call = await twilioClient.calls.create({
+          from: options.fromPhoneNumber,
+          to: options.toPhoneNumber,
+          twiml: twiml,
+        });
+        
+        providerCallSid = call.sid;
+        this.logger.log(`Twilio call created: ${providerCallSid}`);
+      } else if (options.provider === 'plivo') {
+        // Plivo requires an answer_url endpoint
+        return this.responseHelper.error('Plivo integration requires additional setup (answer_url endpoint)', 400);
+      } else if (options.provider === 'telnyx') {
+        return this.responseHelper.error('Telnyx integration not yet implemented', 400);
+      }
+
+      return this.responseHelper.success({
+        callId: ultravoxCallId,
+        joinUrl: joinUrl,
+        created: response.data.created,
+        provider: options.provider,
+        providerCallSid: providerCallSid,
+        fromPhoneNumber: options.fromPhoneNumber,
+        toPhoneNumber: options.toPhoneNumber,
+      }, 'Outbound call created', 201);
+    } catch (err) {
+      if (err?.response?.data) {
+        this.logger.error('Ultravox API error response:', JSON.stringify(err.response.data, null, 2));
+      }
+      this.logger.error('Error in createOutboundCallWithMedium', err?.message || err);
+      const errorDetails = err?.response?.data || err?.message || err;
+      return this.responseHelper.error('Failed to create outbound call', err?.response?.status || 500, errorDetails);
     }
   }
 

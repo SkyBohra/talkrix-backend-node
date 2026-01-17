@@ -1,9 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema as MongooseSchema } from 'mongoose';
+import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 // Contact schema for campaign contacts
 @Schema({ _id: true, timestamps: true })
 export class CampaignContact {
+  _id?: Types.ObjectId; // MongoDB auto-generated ID
+
   @Prop({ required: true })
   name: string;
 
@@ -94,6 +96,13 @@ export class Campaign extends Document {
   // Inbound/OnDemand specific fields
   @Prop()
   inboundPhoneNumber?: string; // Phone number assigned for inbound campaigns
+
+  // Outbound phone number configuration
+  @Prop()
+  outboundProvider?: 'twilio' | 'plivo' | 'telnyx'; // Selected telephony provider
+
+  @Prop()
+  outboundPhoneNumber?: string; // Selected phone number for outbound calls
 
   @Prop({ default: true })
   isActive: boolean;

@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { CallHistoryService } from '../call-history/call-history.service';
+import { CampaignService } from '../campaign/campaign.service';
 import { AppLogger } from '../app.logger';
 import { ResponseHelper } from '../response.helper';
 import * as crypto from 'crypto';
@@ -28,6 +29,7 @@ interface TalkrixWebhookPayload {
 export class WebhookController {
   constructor(
     private readonly callHistoryService: CallHistoryService,
+    private readonly campaignService: CampaignService,
     private readonly logger: AppLogger,
     private readonly responseHelper: ResponseHelper,
   ) {}
@@ -185,8 +187,65 @@ export class WebhookController {
 
       await this.callHistoryService.update(callHistory._id.toString(), updateData);
       this.logger.log(`Updated call history for ${call.callId} via webhook`);
+
+      // Update campaign contact status if this call was part of a campaign
+      if (callHistory.metadata?.campaignId) {
+        await this.updateCampaignContactStatus(
+          callHistory.metadata.campaignId as string,
+          call.callId,
+          call.endReason,
+          durationSeconds
+        );
+      }
     } catch (err) {
       this.logger.error(`Error updating call ${call.callId} on ended: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Update campaign contact status when call ends
+   */
+  private async updateCampaignContactStatus(
+    campaignId: string,
+    callId: string,
+    endReason?: string,
+    durationSeconds?: number
+  ) {
+    try {
+      // Find the campaign and the contact with this callId
+      const campaign = await this.campaignService.findOne(campaignId);
+      if (!campaign) {
+        this.logger.warn(`Campaign ${campaignId} not found for call status update`);
+        return;
+      }
+
+      const contact = campaign.contacts.find(c => c.callId === callId);
+      if (!contact || !contact._id) {
+        this.logger.warn(`Contact with callId ${callId} not found in campaign ${campaignId}`);
+        return;
+      }
+
+      // Determine call status based on end reason
+      let callStatus: 'completed' | 'failed' | 'no-answer' = 'completed';
+      if (endReason === 'unjoined' || endReason === 'timeout') {
+        callStatus = 'no-answer';
+      } else if (endReason === 'connection_error' || endReason === 'system_error') {
+        callStatus = 'failed';
+      }
+
+      await this.campaignService.updateContactCallStatus(
+        campaignId,
+        contact._id.toString(),
+        callStatus,
+        {
+          callId,
+          callDuration: durationSeconds || 0,
+        }
+      );
+
+      this.logger.log(`Updated campaign contact status to ${callStatus} for call ${callId}`);
+    } catch (err) {
+      this.logger.error(`Error updating campaign contact status: ${err?.message}`);
     }
   }
 
