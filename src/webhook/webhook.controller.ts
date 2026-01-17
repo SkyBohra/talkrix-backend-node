@@ -111,14 +111,16 @@ export class WebhookController {
   private async handleCallJoined(call: TalkrixWebhookPayload['call']) {
     this.logger.log(`Call joined: ${call.callId}`);
     
-    // Update call status to in-progress
+    // Update call status to in-progress and set startedAt
     try {
       const callHistory = await this.callHistoryService.findByTalkrixCallId(call.callId);
       if (callHistory) {
+        const startedAt = call.joined ? new Date(call.joined) : new Date();
         await this.callHistoryService.update(callHistory._id.toString(), {
           status: 'in-progress',
+          startedAt,
         });
-        this.logger.log(`Updated call ${call.callId} to in-progress`);
+        this.logger.log(`Updated call ${call.callId} to in-progress with startedAt: ${startedAt.toISOString()}`);
       }
     } catch (err) {
       this.logger.warn(`Could not update call ${call.callId} on joined: ${err?.message}`);
@@ -144,6 +146,11 @@ export class WebhookController {
         const joined = new Date(call.joined);
         const ended = new Date(call.ended);
         durationSeconds = Math.round((ended.getTime() - joined.getTime()) / 1000);
+      } else if (callHistory.startedAt && call.ended) {
+        // Fallback: use stored startedAt if webhook joined timestamp is missing
+        const started = new Date(callHistory.startedAt);
+        const ended = new Date(call.ended);
+        durationSeconds = Math.round((ended.getTime() - started.getTime()) / 1000);
       }
 
       // Calculate billed duration - minimum 1 minute for any call with duration
@@ -212,19 +219,6 @@ export class WebhookController {
     durationSeconds?: number
   ) {
     try {
-      // Find the campaign and the contact with this callId
-      const campaign = await this.campaignService.findOne(campaignId);
-      if (!campaign) {
-        this.logger.warn(`Campaign ${campaignId} not found for call status update`);
-        return;
-      }
-
-      const contact = campaign.contacts.find(c => c.callId === callId);
-      if (!contact || !contact._id) {
-        this.logger.warn(`Contact with callId ${callId} not found in campaign ${campaignId}`);
-        return;
-      }
-
       // Determine call status based on end reason
       let callStatus: 'completed' | 'failed' | 'no-answer' = 'completed';
       if (endReason === 'unjoined' || endReason === 'timeout') {
@@ -232,18 +226,25 @@ export class WebhookController {
       } else if (endReason === 'connection_error' || endReason === 'system_error') {
         callStatus = 'failed';
       }
+      // hangup, agent_hangup are considered completed
 
-      await this.campaignService.updateContactCallStatus(
+      this.logger.log(`Updating campaign contact status to ${callStatus} for call ${callId} (endReason: ${endReason})`);
+
+      // Use the new method that searches by callId directly
+      const campaign = await this.campaignService.updateContactCallStatusByCallId(
         campaignId,
-        contact._id.toString(),
+        callId,
         callStatus,
         {
-          callId,
           callDuration: durationSeconds || 0,
         }
       );
 
-      this.logger.log(`Updated campaign contact status to ${callStatus} for call ${callId}`);
+      if (campaign) {
+        this.logger.log(`Updated campaign contact status to ${callStatus} for call ${callId}`);
+      } else {
+        this.logger.warn(`Failed to update campaign contact - campaign ${campaignId} or contact with callId ${callId} not found`);
+      }
     } catch (err) {
       this.logger.error(`Error updating campaign contact status: ${err?.message}`);
     }

@@ -143,6 +143,40 @@ export class CampaignService {
     return this.campaignModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
 
+  // Update contact call status by talkrix call ID (used by webhooks)
+  async updateContactCallStatusByCallId(
+    campaignId: string,
+    callId: string,
+    callStatus: CampaignContact['callStatus'],
+    callData?: { callDuration?: number; callNotes?: string }
+  ): Promise<Campaign | null> {
+    const updateFields: Record<string, any> = {
+      'contacts.$.callStatus': callStatus,
+    };
+
+    // Only update calledAt if it's a completion status (not in-progress)
+    if (callStatus !== 'in-progress') {
+      updateFields['contacts.$.calledAt'] = new Date();
+    }
+    
+    if (callData?.callDuration !== undefined) updateFields['contacts.$.callDuration'] = callData.callDuration;
+    if (callData?.callNotes) updateFields['contacts.$.callNotes'] = callData.callNotes;
+
+    const campaign = await this.campaignModel.findOneAndUpdate(
+      { _id: campaignId, 'contacts.callId': callId },
+      { $set: updateFields },
+      { new: true }
+    ).exec();
+
+    // Update campaign statistics
+    if (campaign) {
+      const stats = this.calculateCampaignStats(campaign);
+      await this.campaignModel.findByIdAndUpdate(campaignId, stats).exec();
+    }
+
+    return campaign;
+  }
+
   // Update contact call status
   async updateContactCallStatus(
     campaignId: string,
