@@ -9,8 +9,19 @@ export class CampaignService {
 
   // Create a new campaign
   async create(campaignData: Partial<Campaign>): Promise<Campaign> {
+    // Auto-set status to 'scheduled' for outbound campaigns with schedule
+    let status = campaignData.status || 'draft';
+    if (
+      campaignData.type === 'outbound' &&
+      campaignData.schedule?.scheduledDate &&
+      campaignData.schedule?.scheduledTime
+    ) {
+      status = 'scheduled';
+    }
+
     const campaign = new this.campaignModel({
       ...campaignData,
+      status,
       totalContacts: campaignData.contacts?.length || 0,
     });
     return campaign.save();
@@ -60,6 +71,19 @@ export class CampaignService {
     if (updateData.contacts) {
       updateData.totalContacts = updateData.contacts.length;
     }
+
+    // Auto-update status to 'scheduled' if outbound campaign gets schedule and is in draft
+    if (updateData.schedule?.scheduledDate && updateData.schedule?.scheduledTime) {
+      const existingCampaign = await this.campaignModel.findById(id).exec();
+      if (
+        existingCampaign &&
+        existingCampaign.type === 'outbound' &&
+        existingCampaign.status === 'draft'
+      ) {
+        updateData.status = 'scheduled';
+      }
+    }
+
     return this.campaignModel.findByIdAndUpdate(id, updateData, { new: true }).exec();
   }
 

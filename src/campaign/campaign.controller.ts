@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CampaignService } from './campaign.service';
+import { CampaignSchedulerService } from './campaign-scheduler.service';
 import { Campaign, CampaignContact } from './campaign.schema';
 import { AuthOrApiKeyGuard } from '../auth/auth-or-apikey.guard';
 import { ResponseHelper } from '../response.helper';
@@ -29,6 +30,7 @@ import * as XLSX from 'xlsx';
 export class CampaignController {
   constructor(
     private readonly campaignService: CampaignService,
+    private readonly campaignSchedulerService: CampaignSchedulerService,
     private readonly responseHelper: ResponseHelper,
     private readonly logger: AppLogger,
     private readonly agentService: AgentService,
@@ -623,6 +625,305 @@ export class CampaignController {
     } catch (err) {
       this.logger.error('Error triggering calls', err);
       return this.responseHelper.error('Failed to trigger calls', 500, err?.message || err);
+    }
+  }
+
+  // Start a scheduled outbound campaign immediately
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/start')
+  async startCampaign(@Param('id') id: string, @Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized', 403);
+      }
+
+      // Only outbound campaigns can be started this way
+      if (campaign.type !== 'outbound') {
+        return this.responseHelper.error('Only outbound campaigns can be started', 400);
+      }
+
+      // Check if campaign can be started
+      if (campaign.status !== 'scheduled' && campaign.status !== 'draft' && campaign.status !== 'paused') {
+        return this.responseHelper.error(`Campaign cannot be started from ${campaign.status} status`, 400);
+      }
+
+      // Verify outbound configuration
+      if (!campaign.outboundProvider || !campaign.outboundPhoneNumber) {
+        return this.responseHelper.error('Outbound phone number is not configured for this campaign', 400);
+      }
+
+      // Verify there are pending contacts
+      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
+      if (pendingContacts.length === 0) {
+        return this.responseHelper.error('No pending contacts to call', 400);
+      }
+
+      // Start the campaign
+      if (campaign.status === 'paused') {
+        await this.campaignSchedulerService.resumeCampaign(id);
+      } else {
+        await this.campaignSchedulerService.startCampaignNow(id);
+      }
+
+      this.logger.log(`Campaign ${campaign.name} started by user ${userInfo.userId}`);
+      
+      const updatedCampaign = await this.campaignService.findOne(id);
+      return this.responseHelper.success(updatedCampaign, 'Campaign started successfully');
+    } catch (err) {
+      this.logger.error('Error starting campaign', err);
+      return this.responseHelper.error('Failed to start campaign', 500, err?.message || err);
+    }
+  }
+
+  // Pause an active campaign
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/pause')
+  async pauseCampaign(@Param('id') id: string, @Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized', 403);
+      }
+
+      // Only active campaigns can be paused
+      if (campaign.status !== 'active') {
+        return this.responseHelper.error('Only active campaigns can be paused', 400);
+      }
+
+      await this.campaignSchedulerService.pauseCampaign(id);
+
+      this.logger.log(`Campaign ${campaign.name} paused by user ${userInfo.userId}`);
+      
+      const updatedCampaign = await this.campaignService.findOne(id);
+      return this.responseHelper.success(updatedCampaign, 'Campaign paused successfully');
+    } catch (err) {
+      this.logger.error('Error pausing campaign', err);
+      return this.responseHelper.error('Failed to pause campaign', 500, err?.message || err);
+    }
+  }
+
+  // Resume a paused campaign
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/resume')
+  async resumeCampaign(@Param('id') id: string, @Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized', 403);
+      }
+
+      // Only paused campaigns can be resumed
+      if (campaign.status !== 'paused') {
+        return this.responseHelper.error('Only paused campaigns can be resumed', 400);
+      }
+
+      await this.campaignSchedulerService.resumeCampaign(id);
+
+      this.logger.log(`Campaign ${campaign.name} resumed by user ${userInfo.userId}`);
+      
+      const updatedCampaign = await this.campaignService.findOne(id);
+      return this.responseHelper.success(updatedCampaign, 'Campaign resumed successfully');
+    } catch (err) {
+      this.logger.error('Error resuming campaign', err);
+      return this.responseHelper.error('Failed to resume campaign', 500, err?.message || err);
+    }
+  }
+
+  // Debug endpoint to check scheduler status
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get(':id/debug-schedule')
+  async debugSchedule(@Param('id') id: string, @Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized', 403);
+      }
+
+      const user = await this.userService.findById(userInfo.userId);
+      
+      // Get current time in campaign's timezone
+      const timezone = campaign.schedule?.timezone || 'UTC';
+      let nowInTimezone: Date | null = null;
+      
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        });
+        const parts = formatter.formatToParts(new Date());
+        const get = (type: string) => parts.find((p) => p.type === type)?.value;
+        nowInTimezone = new Date(
+          parseInt(get('year')!),
+          parseInt(get('month')!) - 1,
+          parseInt(get('day')!),
+          parseInt(get('hour')!),
+          parseInt(get('minute')!),
+          parseInt(get('second')!),
+        );
+      } catch {
+        nowInTimezone = new Date();
+      }
+
+      // Calculate scheduled datetime
+      const scheduledDate = campaign.schedule?.scheduledDate ? new Date(campaign.schedule.scheduledDate) : null;
+      const scheduledTime = campaign.schedule?.scheduledTime;
+      
+      let scheduledDateTime: Date | null = null;
+      let timeDiff: number | null = null;
+      
+      if (scheduledDate && scheduledTime) {
+        const year = scheduledDate.getUTCFullYear();
+        const month = scheduledDate.getUTCMonth();
+        const day = scheduledDate.getUTCDate();
+        const [hours, minutes] = scheduledTime.split(':').map(Number);
+        scheduledDateTime = new Date(year, month, day, hours, minutes, 0, 0);
+        timeDiff = nowInTimezone!.getTime() - scheduledDateTime.getTime();
+      }
+
+      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
+      
+      return this.responseHelper.success({
+        campaignId: id,
+        campaignName: campaign.name,
+        campaignType: campaign.type,
+        campaignStatus: campaign.status,
+        schedule: {
+          scheduledDate: campaign.schedule?.scheduledDate,
+          scheduledTime: campaign.schedule?.scheduledTime,
+          timezone: campaign.schedule?.timezone,
+        },
+        computed: {
+          timezone,
+          nowInTimezone: nowInTimezone?.toISOString(),
+          nowInTimezoneLocal: nowInTimezone ? `${nowInTimezone.getFullYear()}-${String(nowInTimezone.getMonth() + 1).padStart(2, '0')}-${String(nowInTimezone.getDate()).padStart(2, '0')} ${String(nowInTimezone.getHours()).padStart(2, '0')}:${String(nowInTimezone.getMinutes()).padStart(2, '0')}` : null,
+          scheduledDateTime: scheduledDateTime?.toISOString(),
+          timeDiffSeconds: timeDiff !== null ? Math.round(timeDiff / 1000) : null,
+          shouldStart: timeDiff !== null ? (timeDiff >= 0 && timeDiff < 5 * 60 * 1000) : false,
+        },
+        outboundConfig: {
+          provider: campaign.outboundProvider,
+          phoneNumber: campaign.outboundPhoneNumber,
+        },
+        userSettings: {
+          maxConcurrentCalls: user?.settings?.maxConcurrentCalls || 1,
+        },
+        contactStats: {
+          total: campaign.contacts.length,
+          pending: pendingContacts.length,
+        },
+        checks: {
+          isOutbound: campaign.type === 'outbound',
+          isScheduled: campaign.status === 'scheduled',
+          hasScheduleDate: !!campaign.schedule?.scheduledDate,
+          hasScheduleTime: !!campaign.schedule?.scheduledTime,
+          hasOutboundProvider: !!campaign.outboundProvider,
+          hasOutboundPhoneNumber: !!campaign.outboundPhoneNumber,
+          hasPendingContacts: pendingContacts.length > 0,
+        },
+      }, 'Debug info fetched');
+    } catch (err) {
+      this.logger.error('Error fetching debug info', err);
+      return this.responseHelper.error('Failed to fetch debug info', 500, err?.message || err);
+    }
+  }
+
+  // Get campaign real-time state (active calls, etc.)
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get(':id/state')
+  async getCampaignState(@Param('id') id: string, @Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized', 403);
+      }
+
+      // Get user's maxConcurrentCalls setting
+      const user = await this.userService.findById(userInfo.userId);
+      const maxConcurrentCalls = user?.settings?.maxConcurrentCalls || 1;
+
+      const state = this.campaignSchedulerService.getCampaignState(id);
+      
+      // Calculate from campaign data if state not in memory
+      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+      const inProgressContacts = campaign.contacts.filter(c => c.callStatus === 'in-progress').length;
+      const completedContacts = campaign.contacts.filter(c => c.callStatus === 'completed').length;
+      const failedContacts = campaign.contacts.filter(c => c.callStatus === 'failed' || c.callStatus === 'no-answer').length;
+
+      return this.responseHelper.success({
+        campaignId: id,
+        status: campaign.status,
+        // User's maxConcurrentCalls applies to ALL campaigns combined
+        activeCalls: state?.activeCalls ?? inProgressContacts,
+        maxConcurrentCalls: state?.maxConcurrentCalls ?? maxConcurrentCalls,
+        isActive: state?.isActive ?? false,
+        contactStats: {
+          total: campaign.contacts.length,
+          pending: pendingContacts,
+          inProgress: inProgressContacts,
+          completed: completedContacts,
+          failed: failedContacts,
+        },
+      }, 'Campaign state fetched');
+    } catch (err) {
+      this.logger.error('Error fetching campaign state', err);
+      return this.responseHelper.error('Failed to fetch campaign state', 500, err?.message || err);
     }
   }
 }

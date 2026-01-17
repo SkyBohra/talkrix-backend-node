@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { CallHistoryService } from '../call-history/call-history.service';
 import { CampaignService } from '../campaign/campaign.service';
+import { CampaignSchedulerService } from '../campaign/campaign-scheduler.service';
 import { AppLogger } from '../app.logger';
 import { ResponseHelper } from '../response.helper';
 import * as crypto from 'crypto';
@@ -30,6 +31,7 @@ export class WebhookController {
   constructor(
     private readonly callHistoryService: CallHistoryService,
     private readonly campaignService: CampaignService,
+    private readonly campaignSchedulerService: CampaignSchedulerService,
     private readonly logger: AppLogger,
     private readonly responseHelper: ResponseHelper,
   ) {}
@@ -242,6 +244,10 @@ export class WebhookController {
 
       if (campaign) {
         this.logger.log(`Updated campaign contact status to ${callStatus} for call ${callId}`);
+        
+        // Trigger next call in the campaign queue
+        // This handles the concurrency logic - when one call ends, start the next
+        await this.campaignSchedulerService.onCallEnded(campaignId, callId);
       } else {
         this.logger.warn(`Failed to update campaign contact - campaign ${campaignId} or contact with callId ${callId} not found`);
       }

@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MulterModule } from '@nestjs/platform-express';
 import { Campaign, CampaignSchema } from './campaign.schema';
 import { CampaignService } from './campaign.service';
+import { CampaignSchedulerService } from './campaign-scheduler.service';
 import { CampaignController } from './campaign.controller';
 import { UserModule } from '../user/user.module';
 import { SharedModule } from '../shared.module';
@@ -32,8 +33,8 @@ import { CallHistoryModule } from '../call-history/call-history.module';
     forwardRef(() => AgentModule),
     forwardRef(() => CallHistoryModule),
   ],
-  providers: [CampaignService],
+  providers: [CampaignService, CampaignSchedulerService],
   controllers: [CampaignController],
-  exports: [CampaignService],
+  exports: [CampaignService, CampaignSchedulerService],
 })
 export class CampaignModule {}
