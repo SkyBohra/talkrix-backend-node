@@ -14,6 +14,7 @@ import { CallHistoryModule } from './call-history/call-history.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { SharedModule } from './shared.module';
 import { CampaignModule } from './campaign/campaign.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { CampaignModule } from './campaign/campaign.module';
     WebhookModule,
     SharedModule,
     CampaignModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
