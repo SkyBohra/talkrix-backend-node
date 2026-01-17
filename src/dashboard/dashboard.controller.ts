@@ -11,6 +11,23 @@ export class DashboardController {
     private readonly responseHelper: ResponseHelper,
   ) {}
 
+  // Helper to extract user info from JWT token or API key
+  private getUserIdFromRequest(req: any): string | null {
+    if (req.user?.sub) {
+      return String(req.user.sub);
+    }
+    if (req.apiUser?._id) {
+      return String(req.apiUser._id);
+    }
+    if (req.user?.userId) {
+      return String(req.user.userId);
+    }
+    if (req.user?.id) {
+      return String(req.user.id);
+    }
+    return null;
+  }
+
   /**
    * GET /dashboard
    * Main dashboard endpoint - returns all stats, trends, and recent calls
@@ -22,7 +39,7 @@ export class DashboardController {
     @Query('period') period: 'today' | 'week' | 'month' = 'week',
   ) {
     try {
-      const userId = req.user?.userId || req.user?.id;
+      const userId = this.getUserIdFromRequest(req);
       if (!userId) {
         return this.responseHelper.error('User ID not found', 401);
       }
@@ -45,7 +62,7 @@ export class DashboardController {
     @Query('period') period: 'today' | 'week' | 'month' = 'week',
   ) {
     try {
-      const userId = req.user?.userId || req.user?.id;
+      const userId = this.getUserIdFromRequest(req);
       if (!userId) {
         return this.responseHelper.error('User ID not found', 401);
       }
@@ -72,7 +89,7 @@ export class DashboardController {
     @Query('limit') limit: string = '5',
   ) {
     try {
-      const userId = req.user?.userId || req.user?.id;
+      const userId = this.getUserIdFromRequest(req);
       if (!userId) {
         return this.responseHelper.error('User ID not found', 401);
       }
@@ -95,7 +112,7 @@ export class DashboardController {
   @Get('calls/hourly')
   async getCallsByHour(@Req() req: any) {
     try {
-      const userId = req.user?.userId || req.user?.id;
+      const userId = this.getUserIdFromRequest(req);
       if (!userId) {
         return this.responseHelper.error('User ID not found', 401);
       }
@@ -118,7 +135,7 @@ export class DashboardController {
     @Query('days') days: string = '7',
   ) {
     try {
-      const userId = req.user?.userId || req.user?.id;
+      const userId = this.getUserIdFromRequest(req);
       if (!userId) {
         return this.responseHelper.error('User ID not found', 401);
       }
