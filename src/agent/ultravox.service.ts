@@ -607,9 +607,11 @@ export class UltravoxService {
         this.logger.log(`TwiML Stream URL: ${joinUrl}`);
         
         // Build StatusCallback URL with tracking parameters
-        const webhookBaseUrl = process.env.WEBHOOK_BASE_URL;
+        let webhookBaseUrl = process.env.WEBHOOK_BASE_URL;
         let statusCallbackUrl: string | undefined;
         if (webhookBaseUrl) {
+          // Remove trailing slash if present to avoid double slash
+          webhookBaseUrl = webhookBaseUrl.replace(/\/+$/, '');
           const params = new URLSearchParams();
           if (options.campaignId) params.append('campaignId', options.campaignId);
           if (options.contactId) params.append('contactId', options.contactId);

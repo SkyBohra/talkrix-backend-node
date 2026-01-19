@@ -338,6 +338,8 @@ export class WebhookController {
    * 
    * Configure this URL in Twilio as the StatusCallback URL when making outbound calls
    * URL format: https://your-domain.com/webhook/twilio/status?campaignId=xxx&contactId=xxx&callHistoryId=xxx
+   * 
+   * Note: Twilio sends data as application/x-www-form-urlencoded
    */
   @Post('twilio/status')
   @HttpCode(200)
@@ -349,6 +351,17 @@ export class WebhookController {
     @Res() res: Response,
   ) {
     try {
+      // Log raw payload for debugging
+      this.logger.log(`Twilio raw payload: ${JSON.stringify(payload)}`);
+      this.logger.log(`Twilio query params: campaignId=${campaignId}, contactId=${contactId}, callHistoryId=${callHistoryId}`);
+      
+      // Validate required fields - Twilio sends form-urlencoded data
+      if (!payload || !payload.CallStatus) {
+        this.logger.warn('Twilio webhook missing required fields, returning OK to prevent retries');
+        res.type('text/xml');
+        return res.send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+      }
+
       this.logger.log(
         `Received Twilio status callback: CallSid=${payload.CallSid}, Status=${payload.CallStatus}, ` +
         `Duration=${payload.CallDuration || payload.Duration || '0'}, campaignId=${campaignId}`
