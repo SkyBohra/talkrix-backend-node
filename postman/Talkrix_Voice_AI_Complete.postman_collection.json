@@ -1,0 +1,1190 @@
+{
+  "info": {
+    "_postman_id": "talkrix-voice-ai-complete-2026",
+    "name": "Talkrix Voice AI - Complete API",
+    "description": "Complete Postman collection for Talkrix Voice AI Backend API\n\nIncludes all endpoints for:\n- Authentication\n- Agents\n- Call History\n- Campaigns\n- Corpus (RAG)\n- Tools\n- Dashboard\n- Settings\n- Webhooks",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints - Register, Login, and User Info",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.access_token) {",
+                  "    pm.environment.set('accessToken', jsonData.data.access_token);",
+                  "}",
+                  "if (jsonData.data && jsonData.data.userId) {",
+                  "    pm.environment.set('userId', jsonData.data.userId);",
+                  "}",
+                  "if (jsonData.data && jsonData.data.apiKey) {",
+                  "    pm.environment.set('apiKey', jsonData.data.apiKey);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\",\n  \"name\": \"Test User\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.access_token) {",
+                  "    pm.environment.set('accessToken', jsonData.data.access_token);",
+                  "}",
+                  "if (jsonData.data && jsonData.data.userId) {",
+                  "    pm.environment.set('userId', jsonData.data.userId);",
+                  "}",
+                  "if (jsonData.data && jsonData.data.apiKey) {",
+                  "    pm.environment.set('apiKey', jsonData.data.apiKey);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Current User (Me)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agents",
+      "description": "Agent management endpoints - CRUD operations and calls",
+      "item": [
+        {
+          "name": "Create Agent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data._id) {",
+                  "    pm.environment.set('agentId', jsonData.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Agent\",\n  \"systemPrompt\": \"You are a helpful sales assistant. Be friendly and professional.\",\n  \"voice\": \"en-US-Standard-A\",\n  \"language\": \"en\",\n  \"maxDuration\": \"600s\",\n  \"recordingEnabled\": true,\n  \"selectedTools\": [],\n  \"corpusIds\": [],\n  \"firstSpeaker\": \"FIRST_SPEAKER_AGENT\",\n  \"initialOutputMedium\": \"MESSAGE_MEDIUM_VOICE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents"]
+            }
+          }
+        },
+        {
+          "name": "Create Agent (via Ultravox - Legacy)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Agent\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents/ultravox/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "ultravox", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get All Agents",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents"]
+            }
+          }
+        },
+        {
+          "name": "Get Agents by User ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents/user/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "user", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Agents by User ID (Paginated)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents/user/{{userId}}?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "user", "{{userId}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Agent by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Available Voices",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents/voices",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "voices"]
+            }
+          }
+        },
+        {
+          "name": "Get Available Voices (with Search)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/agents/voices?search=english",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "voices"],
+              "query": [
+                { "key": "search", "value": "english" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Agent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Agent Name\",\n  \"systemPrompt\": \"Updated system prompt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Agent",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create Test Call",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.callHistoryId) {",
+                  "    pm.environment.set('callHistoryId', jsonData.data.callHistoryId);",
+                  "}",
+                  "if (jsonData.data && jsonData.data.joinUrl) {",
+                  "    pm.environment.set('joinUrl', jsonData.data.joinUrl);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maxDuration\": \"300s\",\n  \"recordingEnabled\": true,\n  \"callType\": \"test\",\n  \"customerName\": \"Test Customer\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}/call",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}", "call"]
+            }
+          }
+        },
+        {
+          "name": "Create Outbound Call",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.callHistoryId) {",
+                  "    pm.environment.set('callHistoryId', jsonData.data.callHistoryId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerPhone\": \"+1234567890\",\n  \"customerName\": \"John Doe\",\n  \"maxDuration\": \"600s\",\n  \"recordingEnabled\": true,\n  \"metadata\": {\n    \"source\": \"api\",\n    \"campaignId\": \"optional-campaign-id\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}/outbound-call",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}", "outbound-call"]
+            }
+          }
+        },
+        {
+          "name": "End Call",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\",\n  \"durationSeconds\": 120\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/agents/{{agentId}}/call/{{callHistoryId}}/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["agents", "{{agentId}}", "call", "{{callHistoryId}}", "end"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Call History",
+      "description": "Call history and statistics endpoints",
+      "item": [
+        {
+          "name": "Get All Call History",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history"]
+            }
+          }
+        },
+        {
+          "name": "Get Call History (Paginated & Filtered)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history?page=1&limit=20&status=completed&callType=outbound&agentId={{agentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "completed", "description": "Filter by status: pending, in-progress, completed, failed" },
+                { "key": "callType", "value": "outbound", "description": "Filter by type: test, inbound, outbound" },
+                { "key": "agentId", "value": "{{agentId}}", "description": "Filter by agent" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Call Statistics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Call History by Agent",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history/agent/{{agentId}}?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history", "agent", "{{agentId}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Agent Call Statistics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history/agent/{{agentId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history", "agent", "{{agentId}}", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Single Call History",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/call-history/{{callHistoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["call-history", "{{callHistoryId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Campaigns",
+      "description": "Campaign management for outbound calling",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data._id) {",
+                  "    pm.environment.set('campaignId', jsonData.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sales Campaign Q1\",\n  \"description\": \"Outbound sales calls for Q1 leads\",\n  \"type\": \"outbound\",\n  \"agentId\": \"{{agentId}}\",\n  \"schedule\": {\n    \"startDate\": \"2026-01-20\",\n    \"endDate\": \"2026-02-20\",\n    \"startTime\": \"09:00\",\n    \"endTime\": \"17:00\",\n    \"timezone\": \"America/New_York\",\n    \"daysOfWeek\": [\"monday\", \"tuesday\", \"wednesday\", \"thursday\", \"friday\"]\n  },\n  \"maxConcurrentCalls\": 5,\n  \"callsPerMinute\": 2,\n  \"maxRetries\": 2,\n  \"retryDelayMinutes\": 60\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns"]
+            }
+          }
+        },
+        {
+          "name": "Get All Campaigns",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Campaigns by User ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/user/{{userId}}?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "user", "{{userId}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Campaign by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Campaign",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Campaign Name\",\n  \"description\": \"Updated description\",\n  \"maxConcurrentCalls\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Campaign Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"running\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "status"]
+            },
+            "description": "Status options: draft, scheduled, running, paused, completed, cancelled"
+          }
+        },
+        {
+          "name": "Delete Campaign",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Campaign Contacts",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/contacts?page=1&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "contacts"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Contacts to Campaign",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contacts\": [\n    {\n      \"name\": \"John Doe\",\n      \"phoneNumber\": \"+1234567890\"\n    },\n    {\n      \"name\": \"Jane Smith\",\n      \"phoneNumber\": \"+0987654321\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/contacts",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "contacts"]
+            }
+          }
+        },
+        {
+          "name": "Update Campaign Contact",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Contact Name\",\n  \"phoneNumber\": \"+1111111111\",\n  \"status\": \"pending\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/contacts/{{contactId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "contacts", "{{contactId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Campaign Contact",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/contacts/{{contactId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "contacts", "{{contactId}}"]
+            }
+          }
+        },
+        {
+          "name": "Upload Contacts (Excel)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Excel file with 'name' and 'phone' columns"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "upload"]
+            },
+            "description": "Upload an Excel file with contacts. Supported columns: name, Name, NAME, Full Name, Contact Name, phone, Phone, PHONE, phoneNumber, PhoneNumber, Phone Number, mobile, Mobile, MOBILE, Mobile Number"
+          }
+        },
+        {
+          "name": "Get Campaign Statistics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Campaign State",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/state",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "state"]
+            },
+            "description": "Get campaign real-time state including active calls and contact statistics"
+          }
+        },
+        {
+          "name": "Debug Campaign Schedule",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/debug-schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "debug-schedule"]
+            },
+            "description": "Debug endpoint to check scheduler status, timezone calculations, and campaign readiness"
+          }
+        },
+        {
+          "name": "Get User Call State",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/call-state",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "call-state"]
+            },
+            "description": "Get current user's call state - shows active calls, max concurrent calls, and active campaigns"
+          }
+        },
+        {
+          "name": "Reset User Call State",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/reset-call-state",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "reset-call-state"]
+            },
+            "description": "Reset user's call state - clears stuck active calls when calls get stuck in 'in-progress' state"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Corpus (RAG)",
+      "description": "Knowledge base management for RAG (Retrieval Augmented Generation)",
+      "item": [
+        {
+          "name": "Create Corpus",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data._id) {",
+                  "    pm.environment.set('corpusId', jsonData.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Product Knowledge Base\",\n  \"description\": \"Contains product documentation and FAQs\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corpora",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora"]
+            }
+          }
+        },
+        {
+          "name": "List All Corpora",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/corpora",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora"]
+            }
+          }
+        },
+        {
+          "name": "Sync Corpora from Ultravox",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/corpora/sync",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "sync"]
+            }
+          }
+        },
+        {
+          "name": "Get Corpus by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Corpus",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Corpus Name\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Corpus",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}"]
+            }
+          }
+        },
+        {
+          "name": "Query Corpus",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What are the pricing options?\",\n  \"maxResults\": 5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}/query",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}", "query"]
+            }
+          }
+        },
+        {
+          "name": "Create Crawl Source",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Website Docs\",\n  \"description\": \"Crawled from website documentation\",\n  \"startUrls\": [\"https://docs.example.com\"],\n  \"maxDocuments\": 100,\n  \"maxDepth\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}/sources/crawl",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}", "sources", "crawl"]
+            }
+          }
+        },
+        {
+          "name": "Create Upload Source",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Manual Upload\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/corpora/{{corpusId}}/sources/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["corpora", "{{corpusId}}", "sources", "upload"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tools",
+      "description": "Custom tool management for agents",
+      "item": [
+        {
+          "name": "Create Tool",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data._id) {",
+                  "    pm.environment.set('toolId', jsonData.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"get_order_status\",\n  \"description\": \"Retrieves the current status of a customer order\",\n  \"definition\": {\n    \"modelToolName\": \"get_order_status\",\n    \"description\": \"Get the current status of an order by order ID\",\n    \"dynamicParameters\": [\n      {\n        \"name\": \"order_id\",\n        \"location\": \"PARAMETER_LOCATION_BODY\",\n        \"schema\": {\n          \"type\": \"string\",\n          \"description\": \"The unique order identifier\"\n        },\n        \"required\": true\n      }\n    ],\n    \"http\": {\n      \"baseUrlPattern\": \"https://api.example.com/orders/{order_id}\",\n      \"httpMethod\": \"GET\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools"]
+            }
+          }
+        },
+        {
+          "name": "Get All Tools",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tools",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools"]
+            }
+          }
+        },
+        {
+          "name": "Get My Tools",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tools/user/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "user", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get Tools by User ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tools/user/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "user", "{{userId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Tool by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tools/{{toolId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "{{toolId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Tool",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"updated_tool_name\",\n  \"description\": \"Updated tool description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/{{toolId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "{{toolId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Tool",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/tools/{{toolId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "{{toolId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "description": "Dashboard and analytics endpoints",
+      "item": [
+        {
+          "name": "Get Dashboard Data",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard?period=week",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard"],
+              "query": [
+                { "key": "period", "value": "week", "description": "Options: today, week, month" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/stats?period=week",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "stats"],
+              "query": [
+                { "key": "period", "value": "week", "description": "Options: today, week, month" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Agent Performance",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/agents?limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "agents"],
+              "query": [
+                { "key": "limit", "value": "5", "description": "Max 20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Hourly Calls",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/calls/hourly",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "calls", "hourly"]
+            }
+          }
+        },
+        {
+          "name": "Get Daily Calls",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/calls/daily?days=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "calls", "daily"],
+              "query": [
+                { "key": "days", "value": "7", "description": "Max 90 days" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "description": "User settings management",
+      "item": [
+        {
+          "name": "Get All Settings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings"]
+            }
+          }
+        },
+        {
+          "name": "Update General Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maxConcurrentCalls\": 5,\n  \"maxRagDocuments\": 10,\n  \"maxAgents\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settings/general",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings", "general"]
+            }
+          }
+        },
+        {
+          "name": "Update Telephony Settings (Plivo)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"plivo\",\n  \"plivoAuthId\": \"your-plivo-auth-id\",\n  \"plivoAuthToken\": \"your-plivo-auth-token\",\n  \"plivoPhoneNumbers\": [\"+1234567890\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settings/telephony",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings", "telephony"]
+            }
+          }
+        },
+        {
+          "name": "Update Telephony Settings (Twilio)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"twilio\",\n  \"twilioAccountSid\": \"your-twilio-account-sid\",\n  \"twilioAuthToken\": \"your-twilio-auth-token\",\n  \"twilioPhoneNumbers\": [\"+1234567890\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settings/telephony",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings", "telephony"]
+            }
+          }
+        },
+        {
+          "name": "Update Telephony Settings (Telnyx)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"telnyx\",\n  \"telnyxApiKey\": \"your-telnyx-api-key\",\n  \"telnyxPhoneNumbers\": [\"+1234567890\"],\n  \"telnyxConnectionId\": \"your-connection-id\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/settings/telephony",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings", "telephony"]
+            }
+          }
+        },
+        {
+          "name": "Regenerate API Key",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/settings/regenerate-api-key",
+              "host": ["{{baseUrl}}"],
+              "path": ["settings", "regenerate-api-key"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhook",
+      "description": "Webhook endpoints for external integrations",
+      "item": [
+        {
+          "name": "Talkrix Webhook",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-webhook-secret", "value": "{{webhookSecret}}", "description": "Optional webhook secret" },
+              { "key": "x-webhook-signature", "value": "", "description": "HMAC-SHA256 signature of the body" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"call.ended\",\n  \"call\": {\n    \"callId\": \"call-uuid\",\n    \"created\": \"2026-01-19T10:00:00Z\",\n    \"joined\": \"2026-01-19T10:00:05Z\",\n    \"ended\": \"2026-01-19T10:05:00Z\",\n    \"endReason\": \"hangup\",\n    \"billedDuration\": \"5m\",\n    \"billingStatus\": \"billed\",\n    \"shortSummary\": \"Customer inquiry about product pricing\",\n    \"summary\": \"The customer called to inquire about product pricing. The agent provided detailed pricing information and answered follow-up questions.\",\n    \"recordingEnabled\": true,\n    \"recordingUrl\": \"https://recordings.example.com/call-uuid.mp3\",\n    \"agentId\": \"agent-uuid\",\n    \"metadata\": {\n      \"campaignId\": \"campaign-uuid\",\n      \"source\": \"web\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/talkrix",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "talkrix"]
+            },
+            "description": "Webhook endpoint for Talkrix/Ultravox call events.\n\nEvents: call.started, call.joined, call.ended, call.billed"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "apiKey", "value": "", "type": "string" },
+    { "key": "agentId", "value": "", "type": "string" },
+    { "key": "callHistoryId", "value": "", "type": "string" },
+    { "key": "campaignId", "value": "", "type": "string" },
+    { "key": "contactId", "value": "", "type": "string" },
+    { "key": "corpusId", "value": "", "type": "string" },
+    { "key": "toolId", "value": "", "type": "string" },
+    { "key": "webhookSecret", "value": "", "type": "string" }
+  ]
+}
