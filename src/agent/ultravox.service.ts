@@ -14,13 +14,26 @@ export class UltravoxService {
     private readonly logger: AppLogger,
   ) {}
 
+  /**
+   * Sanitize a string to match Ultravox agent name pattern: ^[a-zA-Z0-9_-]{1,64}$
+   */
+  private sanitizeAgentName(name: string): string {
+    if (!name) return 'agent';
+    // Replace spaces with underscores, remove invalid characters, limit to 64 chars
+    return name
+      .replace(/\s+/g, '_')           // Replace spaces with underscores
+      .replace(/[^a-zA-Z0-9_-]/g, '') // Remove invalid characters
+      .substring(0, 64)               // Limit to 64 characters
+      || 'agent';                     // Fallback if empty
+  }
+
   async createAgentForUser(agentData: any, userId: string): Promise<StandardResponse> {
     try {
       const apiKey = process.env.ULTRAVOX_API_KEY;
       
       // Build the Ultravox API payload - only include fields that have values
       const ultravoxPayload: any = {
-        name: agentData.name,
+        name: this.sanitizeAgentName(agentData.name),
       };
 
       // Build callTemplate if provided
@@ -205,7 +218,7 @@ export class UltravoxService {
       // Build the Ultravox API payload - only include fields that have values
       const ultravoxPayload: any = {};
       
-      if (updateData.name) ultravoxPayload.name = updateData.name;
+      if (updateData.name) ultravoxPayload.name = this.sanitizeAgentName(updateData.name);
 
       // Build callTemplate if provided
       if (updateData.callTemplate) {
