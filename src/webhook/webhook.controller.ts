@@ -376,8 +376,19 @@ export class WebhookController {
         case 'in-progress':
           this.logger.log(`Twilio call ${payload.CallSid} is in-progress`);
           // Update call history to in-progress
-          if (callHistoryId) {
-            await this.callHistoryService.update(callHistoryId, {
+          // Try to find callHistoryId from campaign contact if not provided
+          let inProgressCallHistoryId = callHistoryId;
+          if (!inProgressCallHistoryId && campaignId && contactId) {
+            const campaign = await this.campaignService.findOne(campaignId);
+            if (campaign) {
+              const contact = campaign.contacts.find(c => c._id?.toString() === contactId);
+              if (contact?.callHistoryId) {
+                inProgressCallHistoryId = contact.callHistoryId;
+              }
+            }
+          }
+          if (inProgressCallHistoryId) {
+            await this.callHistoryService.update(inProgressCallHistoryId, {
               status: 'in-progress',
               startedAt: new Date(),
             });
@@ -450,16 +461,30 @@ export class WebhookController {
         `Duration=${durationSeconds}s, EndReason=${endReason}`
       );
 
+      // Try to find callHistoryId from campaign contact if not provided
+      let resolvedCallHistoryId = callHistoryId;
+      if (!resolvedCallHistoryId && campaignId && contactId) {
+        // Lookup from campaign contact
+        const campaign = await this.campaignService.findOne(campaignId);
+        if (campaign) {
+          const contact = campaign.contacts.find(c => c._id?.toString() === contactId);
+          if (contact?.callHistoryId) {
+            resolvedCallHistoryId = contact.callHistoryId;
+            this.logger.log(`Found callHistoryId ${resolvedCallHistoryId} from campaign contact`);
+          }
+        }
+      }
+
       // Update call history
-      if (callHistoryId) {
-        await this.callHistoryService.update(callHistoryId, {
+      if (resolvedCallHistoryId) {
+        await this.callHistoryService.update(resolvedCallHistoryId, {
           status: callStatus === 'no-answer' ? 'missed' : callStatus,
           endedAt: new Date(),
           durationSeconds,
           endReason: endReason as any,
           billedDuration: durationSeconds > 0 ? `${Math.ceil(durationSeconds / 60)}m` : '0m',
         });
-        this.logger.log(`Updated call history ${callHistoryId} via Twilio webhook`);
+        this.logger.log(`Updated call history ${resolvedCallHistoryId} via Twilio webhook`);
       }
 
       // Update campaign contact status and trigger next call

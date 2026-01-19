@@ -16,7 +16,10 @@ export class CampaignContact {
   callStatus: 'pending' | 'completed' | 'failed' | 'in-progress' | 'no-answer';
 
   @Prop()
-  callId?: string; // Reference to call history
+  callId?: string; // Ultravox/Talkrix call ID
+
+  @Prop()
+  callHistoryId?: string; // Reference to CallHistory document
 
   @Prop()
   calledAt?: Date;

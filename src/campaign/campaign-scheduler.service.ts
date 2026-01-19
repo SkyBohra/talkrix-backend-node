@@ -540,13 +540,14 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
 
       const telephony = user.settings.telephony;
 
-      // Update contact status to in-progress BEFORE incrementing counter
+      // Update contact status to in-progress FIRST - this marks the contact as "being called"
+      // This ensures the contact won't be picked up again (only pending contacts are selected)
       await this.campaignService.updateContactCallStatus(campaignId, contactId, 'in-progress');
 
       // Increment active calls count for user (across all campaigns)
       userState.activeCalls++;
 
-      // Track this call for timeout detection (will be updated with callId after call creation)
+      // Track this call for timeout detection (will be updated with actual callId after creation)
       const tempTrackingId = `pending_${campaignId}_${contactId}`;
       this.activeCallsTracker.set(tempTrackingId, {
         callId: tempTrackingId,
@@ -556,29 +557,7 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         startedAt: new Date(),
       });
 
-      // Create call history record FIRST so we have the ID for the callback URL
-      const callHistory = await this.callHistoryService.create({
-        agentId: campaign.agentId,
-        userId: campaign.userId,
-        talkrixCallId: `pending_${campaignId}_${contactId}`, // Temporary, will be updated
-        callType: 'outbound',
-        agentName: agent.name,
-        customerName: contact.name,
-        customerPhone: contact.phoneNumber,
-        recordingEnabled: true,
-        status: 'initiated',
-        metadata: {
-          campaignId: campaign._id.toString(),
-          campaignName: campaign.name,
-          contactId: contactId,
-          provider: campaign.outboundProvider,
-          fromPhoneNumber: campaign.outboundPhoneNumber,
-        },
-      });
-
-      const callHistoryId = callHistory._id.toString();
-
-      // Create the outbound call with callback tracking info
+      // FIRST: Create the outbound call to get actual Ultravox callId
       const callResult = await this.ultravoxService.createOutboundCallWithMedium(
         agent.talkrixAgentId,
         {
@@ -593,51 +572,65 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
           plivoAuthToken: telephony.plivoAuthToken,
           telnyxApiKey: telephony.telnyxApiKey,
           telnyxConnectionId: telephony.telnyxConnectionId,
-          // Pass tracking info for webhook callback
+          // Pass tracking info for webhook callback (callHistoryId will be looked up by campaignId+contactId)
           campaignId: campaignId,
           contactId: contactId,
-          callHistoryId: callHistoryId,
         }
       );
 
       if (callResult.statusCode === 201 && callResult.data) {
+        const ultravoxCallId = callResult.data.callId;
+        
         // Remove temporary tracking and add with actual callId
-        this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
-        this.activeCallsTracker.set(callResult.data.callId, {
-          callId: callResult.data.callId,
+        this.activeCallsTracker.delete(tempTrackingId);
+        this.activeCallsTracker.set(ultravoxCallId, {
+          callId: ultravoxCallId,
           contactId,
           campaignId,
           userId: campaign.userId,
           startedAt: new Date(),
         });
 
-        // Update call history with actual call ID and join URL
-        await this.callHistoryService.update(callHistoryId, {
-          talkrixCallId: callResult.data.callId,
+        // THEN: Create call history with actual Ultravox callId
+        const callHistory = await this.callHistoryService.create({
+          agentId: campaign.agentId,
+          userId: campaign.userId,
+          talkrixCallId: ultravoxCallId, // Actual Ultravox call ID
+          callType: 'outbound',
+          agentName: agent.name,
+          customerName: contact.name,
+          customerPhone: contact.phoneNumber,
+          recordingEnabled: true,
           joinUrl: callResult.data.joinUrl,
+          status: 'in-progress',
           callData: callResult.data,
+          metadata: {
+            campaignId: campaign._id.toString(),
+            campaignName: campaign.name,
+            contactId: contactId,
+            provider: campaign.outboundProvider,
+            fromPhoneNumber: campaign.outboundPhoneNumber,
+          },
         });
 
-        // Update contact with call ID
+        // Update contact with call ID and callHistoryId
         await this.campaignService.updateContactCallStatus(
           campaignId,
           contactId,
           'in-progress',
-          { callId: callResult.data.callId }
+          { 
+            callId: ultravoxCallId,
+            callHistoryId: callHistory._id.toString(),
+          }
         );
 
-        this.logger.log(`Call initiated for ${contact.name} (${contact.phoneNumber}) in campaign ${campaign.name}`);
+        this.logger.log(`Call initiated for ${contact.name} (${contact.phoneNumber}) in campaign ${campaign.name}, callId: ${ultravoxCallId}`);
       } else {
         // Call creation failed - decrement counter, remove tracking, and mark as failed
         userState.activeCalls = Math.max(0, userState.activeCalls - 1);
-        this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
+        this.activeCallsTracker.delete(tempTrackingId);
         
-        // Update call history as failed
-        await this.callHistoryService.update(callHistoryId, {
-          status: 'failed',
-          endReason: 'system_error' as any,
-        });
-
+        // Mark contact as failed (not in-progress) - won't be retried
         await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
           callNotes: callResult.message || 'Failed to create call',
         });

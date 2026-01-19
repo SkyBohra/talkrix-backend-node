@@ -53,7 +53,7 @@ export class CallHistoryService {
     const callHistory = new this.callHistoryModel({
       ...data,
       agentId: new Types.ObjectId(data.agentId),
-      status: 'initiated',
+      status: data.status || 'initiated', // Use provided status or default to 'initiated'
     });
     return callHistory.save();
   }

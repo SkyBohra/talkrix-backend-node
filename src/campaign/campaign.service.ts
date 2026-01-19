@@ -206,7 +206,7 @@ export class CampaignService {
     campaignId: string,
     contactId: string,
     callStatus: CampaignContact['callStatus'],
-    callData?: { callId?: string; callDuration?: number; callNotes?: string }
+    callData?: { callId?: string; callHistoryId?: string; callDuration?: number; callNotes?: string }
   ): Promise<Campaign | null> {
     const updateFields: Record<string, any> = {
       'contacts.$.callStatus': callStatus,
@@ -214,6 +214,7 @@ export class CampaignService {
     };
 
     if (callData?.callId) updateFields['contacts.$.callId'] = callData.callId;
+    if (callData?.callHistoryId) updateFields['contacts.$.callHistoryId'] = callData.callHistoryId;
     if (callData?.callDuration) updateFields['contacts.$.callDuration'] = callData.callDuration;
     if (callData?.callNotes) updateFields['contacts.$.callNotes'] = callData.callNotes;
 

@@ -605,6 +605,7 @@ export class UltravoxService {
 
         this.logger.log(`Creating Twilio outbound call from ${options.fromPhoneNumber} to ${options.toPhoneNumber}`);
         this.logger.log(`TwiML Stream URL: ${joinUrl}`);
+        this.logger.log(`Callback tracking - campaignId: ${options.campaignId}, contactId: ${options.contactId}`);
         
         // Build StatusCallback URL with tracking parameters
         let webhookBaseUrl = process.env.WEBHOOK_BASE_URL;
@@ -615,9 +616,11 @@ export class UltravoxService {
           const params = new URLSearchParams();
           if (options.campaignId) params.append('campaignId', options.campaignId);
           if (options.contactId) params.append('contactId', options.contactId);
-          if (options.callHistoryId) params.append('callHistoryId', options.callHistoryId);
+          // Note: callHistoryId is no longer passed - it's looked up from campaign contact in webhook
           statusCallbackUrl = `${webhookBaseUrl}/webhook/twilio/status?${params.toString()}`;
           this.logger.log(`Twilio StatusCallback URL: ${statusCallbackUrl}`);
+        } else {
+          this.logger.warn('WEBHOOK_BASE_URL not set - Twilio status callbacks will not work');
         }
         
         const callOptions: any = {
