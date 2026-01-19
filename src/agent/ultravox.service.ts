@@ -530,6 +530,10 @@ export class UltravoxService {
     plivoAuthToken?: string;
     telnyxApiKey?: string;
     telnyxConnectionId?: string;
+    // Callback tracking info (for webhook)
+    campaignId?: string;
+    contactId?: string;
+    callHistoryId?: string;
   }): Promise<StandardResponse> {
     try {
       const apiKey = process.env.ULTRAVOX_API_KEY;
@@ -602,11 +606,32 @@ export class UltravoxService {
         this.logger.log(`Creating Twilio outbound call from ${options.fromPhoneNumber} to ${options.toPhoneNumber}`);
         this.logger.log(`TwiML Stream URL: ${joinUrl}`);
         
-        const call = await twilioClient.calls.create({
+        // Build StatusCallback URL with tracking parameters
+        const webhookBaseUrl = process.env.WEBHOOK_BASE_URL;
+        let statusCallbackUrl: string | undefined;
+        if (webhookBaseUrl) {
+          const params = new URLSearchParams();
+          if (options.campaignId) params.append('campaignId', options.campaignId);
+          if (options.contactId) params.append('contactId', options.contactId);
+          if (options.callHistoryId) params.append('callHistoryId', options.callHistoryId);
+          statusCallbackUrl = `${webhookBaseUrl}/webhook/twilio/status?${params.toString()}`;
+          this.logger.log(`Twilio StatusCallback URL: ${statusCallbackUrl}`);
+        }
+        
+        const callOptions: any = {
           from: options.fromPhoneNumber,
           to: options.toPhoneNumber,
           twiml: twiml,
-        });
+        };
+        
+        // Add StatusCallback if URL is available
+        if (statusCallbackUrl) {
+          callOptions.statusCallback = statusCallbackUrl;
+          callOptions.statusCallbackEvent = ['initiated', 'ringing', 'answered', 'completed'];
+          callOptions.statusCallbackMethod = 'POST';
+        }
+        
+        const call = await twilioClient.calls.create(callOptions);
         
         providerCallSid = call.sid;
         this.logger.log(`Twilio call created: ${providerCallSid}`);

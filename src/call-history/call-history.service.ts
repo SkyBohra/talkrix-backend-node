@@ -23,6 +23,7 @@ export interface CreateCallHistoryDto {
   joinUrl?: string;
   callData?: Record<string, any>;
   metadata?: Record<string, any>;
+  status?: CallStatus; // Allow setting initial status
 }
 
 export interface UpdateCallHistoryDto {
@@ -38,6 +39,8 @@ export interface UpdateCallHistoryDto {
   recordingUrl?: string;
   callData?: Record<string, any>;
   metadata?: Record<string, any>;
+  talkrixCallId?: string; // Allow updating call ID
+  joinUrl?: string; // Allow updating join URL
 }
 
 @Injectable()

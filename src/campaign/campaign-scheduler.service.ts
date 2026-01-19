@@ -556,7 +556,29 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         startedAt: new Date(),
       });
 
-      // Create the outbound call
+      // Create call history record FIRST so we have the ID for the callback URL
+      const callHistory = await this.callHistoryService.create({
+        agentId: campaign.agentId,
+        userId: campaign.userId,
+        talkrixCallId: `pending_${campaignId}_${contactId}`, // Temporary, will be updated
+        callType: 'outbound',
+        agentName: agent.name,
+        customerName: contact.name,
+        customerPhone: contact.phoneNumber,
+        recordingEnabled: true,
+        status: 'initiated',
+        metadata: {
+          campaignId: campaign._id.toString(),
+          campaignName: campaign.name,
+          contactId: contactId,
+          provider: campaign.outboundProvider,
+          fromPhoneNumber: campaign.outboundPhoneNumber,
+        },
+      });
+
+      const callHistoryId = callHistory._id.toString();
+
+      // Create the outbound call with callback tracking info
       const callResult = await this.ultravoxService.createOutboundCallWithMedium(
         agent.talkrixAgentId,
         {
@@ -571,6 +593,10 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
           plivoAuthToken: telephony.plivoAuthToken,
           telnyxApiKey: telephony.telnyxApiKey,
           telnyxConnectionId: telephony.telnyxConnectionId,
+          // Pass tracking info for webhook callback
+          campaignId: campaignId,
+          contactId: contactId,
+          callHistoryId: callHistoryId,
         }
       );
 
@@ -585,24 +611,11 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
           startedAt: new Date(),
         });
 
-        // Create call history record
-        await this.callHistoryService.create({
-          agentId: campaign.agentId,
-          userId: campaign.userId,
+        // Update call history with actual call ID and join URL
+        await this.callHistoryService.update(callHistoryId, {
           talkrixCallId: callResult.data.callId,
-          callType: 'outbound',
-          agentName: agent.name,
-          customerName: contact.name,
-          customerPhone: contact.phoneNumber,
-          recordingEnabled: true,
           joinUrl: callResult.data.joinUrl,
           callData: callResult.data,
-          metadata: {
-            campaignId: campaign._id.toString(),
-            campaignName: campaign.name,
-            provider: campaign.outboundProvider,
-            fromPhoneNumber: campaign.outboundPhoneNumber,
-          },
         });
 
         // Update contact with call ID
@@ -618,6 +631,12 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         // Call creation failed - decrement counter, remove tracking, and mark as failed
         userState.activeCalls = Math.max(0, userState.activeCalls - 1);
         this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
+        
+        // Update call history as failed
+        await this.callHistoryService.update(callHistoryId, {
+          status: 'failed',
+          endReason: 'system_error' as any,
+        });
 
         await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
           callNotes: callResult.message || 'Failed to create call',
