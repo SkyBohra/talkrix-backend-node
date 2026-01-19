@@ -187,6 +187,45 @@ export class CampaignController {
     }
   }
 
+  // Get all campaigns with pending contacts that can be resumed in their time window
+  // These are campaigns in 'paused-time-window' status with pending contacts
+  // NOTE: This route MUST be defined BEFORE the :id route to avoid being caught by it
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get('resumable')
+  async getResumableCampaigns(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const result = await this.campaignSchedulerService.getResumableCampaigns(userInfo.userId);
+      return this.responseHelper.success(result, 'Resumable campaigns fetched');
+    } catch (err) {
+      this.logger.error('Error fetching resumable campaigns', err);
+      return this.responseHelper.error('Failed to fetch resumable campaigns', 500, err?.message || err);
+    }
+  }
+
+  // Get summary of all campaigns with pending contacts grouped by status
+  // NOTE: This route MUST be defined BEFORE the :id route to avoid being caught by it
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get('pending-summary')
+  async getPendingContactsSummary(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const result = await this.campaignSchedulerService.getPendingContactsSummary(userInfo.userId);
+      return this.responseHelper.success(result, 'Pending contacts summary fetched');
+    } catch (err) {
+      this.logger.error('Error fetching pending contacts summary', err);
+      return this.responseHelper.error('Failed to fetch pending contacts summary', 500, err?.message || err);
+    }
+  }
+
   // Get a single campaign by ID
   @UseGuards(AuthOrApiKeyGuard)
   @Get(':id')
@@ -795,17 +834,32 @@ export class CampaignController {
         return this.responseHelper.error('Unauthorized', 403);
       }
 
-      // Only paused campaigns can be resumed
-      if (campaign.status !== 'paused') {
+      // Check if campaign can be resumed (paused or paused-time-window)
+      if (campaign.status !== 'paused' && campaign.status !== 'paused-time-window') {
         return this.responseHelper.error('Only paused campaigns can be resumed', 400);
       }
 
+      // Verify there are pending contacts
+      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
+      if (pendingContacts.length === 0) {
+        return this.responseHelper.error('No pending contacts to call', 400);
+      }
+
+      // Verify outbound configuration
+      if (!campaign.outboundProvider || !campaign.outboundPhoneNumber) {
+        return this.responseHelper.error('Outbound phone number is not configured for this campaign', 400);
+      }
+
+      // Resume the campaign
       await this.campaignSchedulerService.resumeCampaign(id);
 
-      this.logger.log(`Campaign ${campaign.name} resumed by user ${userInfo.userId}`);
+      this.logger.log(`Campaign ${campaign.name} resumed by user ${userInfo.userId} with ${pendingContacts.length} pending contacts`);
       
       const updatedCampaign = await this.campaignService.findOne(id);
-      return this.responseHelper.success(updatedCampaign, 'Campaign resumed successfully');
+      return this.responseHelper.success({
+        campaign: updatedCampaign,
+        pendingContacts: pendingContacts.length,
+      }, 'Campaign resumed successfully');
     } catch (err) {
       this.logger.error('Error resuming campaign', err);
       return this.responseHelper.error('Failed to resume campaign', 500, err?.message || err);

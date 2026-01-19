@@ -66,8 +66,8 @@ export class Campaign extends Document {
   @Prop()
   agentName?: string; // Cached agent name for display
 
-  @Prop({ default: 'draft', enum: ['draft', 'active', 'paused', 'completed', 'scheduled'] })
-  status: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled';
+  @Prop({ default: 'draft', enum: ['draft', 'active', 'paused', 'completed', 'scheduled', 'paused-time-window'] })
+  status: 'draft' | 'active' | 'paused' | 'completed' | 'scheduled' | 'paused-time-window';
 
   @Prop({ type: [CampaignContactSchema], default: [] })
   contacts: CampaignContact[];
@@ -95,6 +95,12 @@ export class Campaign extends Document {
 
   @Prop()
   completedAt?: Date;
+
+  @Prop()
+  lastProcessedAt?: Date; // When the campaign was last processed
+
+  @Prop()
+  pausedReason?: string; // Reason for pause (e.g., 'end-time-reached', 'manual')
 
   // Inbound/OnDemand specific fields
   @Prop()

@@ -703,6 +703,104 @@
             },
             "description": "Reset user's call state - clears stuck active calls when calls get stuck in 'in-progress' state"
           }
+        },
+        {
+          "name": "Get Resumable Campaigns",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/resumable",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "resumable"]
+            },
+            "description": "Get all campaigns that can be resumed in the current time window. Returns campaigns with 'paused-time-window' status that have pending contacts and are within their scheduled time window."
+          }
+        },
+        {
+          "name": "Get Pending Contacts Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/pending-summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "pending-summary"]
+            },
+            "description": "Get summary of all campaigns with pending contacts grouped by status. Shows how many contacts are waiting across all campaigns."
+          }
+        },
+        {
+          "name": "Start Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "start"]
+            },
+            "description": "Start a scheduled or draft outbound campaign immediately. Only works for campaigns with pending contacts and configured outbound phone number."
+          }
+        },
+        {
+          "name": "Pause Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "pause"]
+            },
+            "description": "Pause an active campaign. In-progress calls will complete but no new calls will be initiated."
+          }
+        },
+        {
+          "name": "Resume Campaign",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/resume",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "resume"]
+            },
+            "description": "Resume a paused or paused-time-window campaign. Works for campaigns that were manually paused or automatically paused due to end time with pending contacts remaining."
+          }
+        },
+        {
+          "name": "Trigger On-Demand Calls",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactIds\": [\"{{contactId}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/trigger-calls",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "trigger-calls"]
+            },
+            "description": "Trigger calls for specific contacts in an on-demand campaign. Only works for campaigns with type 'ondemand'. Contacts must be in 'pending' or 'failed' status."
+          }
+        },
+        {
+          "name": "Update Contact Call Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"callStatus\": \"completed\",\n  \"callId\": \"call_123\",\n  \"callDuration\": 120,\n  \"callNotes\": \"Customer interested in product demo\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/campaigns/{{campaignId}}/contacts/{{contactId}}/call-status",
+              "host": ["{{baseUrl}}"],
+              "path": ["campaigns", "{{campaignId}}", "contacts", "{{contactId}}", "call-status"]
+            },
+            "description": "Update a contact's call status after a call. Status options: pending, in-progress, completed, failed, no-answer"
+          }
         }
       ]
     },
@@ -1146,7 +1244,7 @@
     },
     {
       "name": "Webhook",
-      "description": "Webhook endpoints for external integrations",
+      "description": "Webhook endpoints for external integrations (Talkrix, Twilio, Plivo, Telnyx)",
       "item": [
         {
           "name": "Talkrix Webhook",
@@ -1170,6 +1268,106 @@
               "path": ["webhook", "talkrix"]
             },
             "description": "Webhook endpoint for Talkrix/Ultravox call events.\n\nEvents: call.started, call.joined, call.ended, call.billed"
+          }
+        },
+        {
+          "name": "Twilio Status Callback",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "CallSid", "value": "CA1234567890abcdef", "description": "Twilio Call SID" },
+                { "key": "AccountSid", "value": "AC1234567890abcdef", "description": "Twilio Account SID" },
+                { "key": "From", "value": "+1234567890", "description": "Caller phone number" },
+                { "key": "To", "value": "+0987654321", "description": "Called phone number" },
+                { "key": "CallStatus", "value": "completed", "description": "Call status: queued, ringing, in-progress, completed, busy, failed, no-answer, canceled" },
+                { "key": "CallDuration", "value": "120", "description": "Call duration in seconds (only for completed calls)" },
+                { "key": "Direction", "value": "outbound-api", "description": "Call direction" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/twilio/status?campaignId={{campaignId}}&contactId={{contactId}}&callHistoryId={{callHistoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "twilio", "status"],
+              "query": [
+                { "key": "campaignId", "value": "{{campaignId}}", "description": "Campaign ID for tracking" },
+                { "key": "contactId", "value": "{{contactId}}", "description": "Contact ID in the campaign" },
+                { "key": "callHistoryId", "value": "{{callHistoryId}}", "description": "Call History record ID" }
+              ]
+            },
+            "description": "Twilio Status Callback webhook endpoint.\n\nConfigure this URL as StatusCallback when making Twilio outbound calls.\n\nStatus values: queued, ringing, in-progress, completed, busy, failed, no-answer, canceled\n\nThis webhook:\n1. Updates call history with duration and status\n2. Updates campaign contact status\n3. Triggers scheduler to start next call"
+          }
+        },
+        {
+          "name": "Plivo Status Callback",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "CallUUID", "value": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "description": "Plivo Call UUID" },
+                { "key": "From", "value": "+1234567890", "description": "Caller phone number" },
+                { "key": "To", "value": "+0987654321", "description": "Called phone number" },
+                { "key": "CallStatus", "value": "completed", "description": "Call status: ringing, in-progress, completed, busy, failed, timeout, no-answer, cancel, machine" },
+                { "key": "Duration", "value": "120", "description": "Call duration in seconds" },
+                { "key": "BillDuration", "value": "120", "description": "Billed duration in seconds" },
+                { "key": "BillRate", "value": "0.01", "description": "Rate per minute" },
+                { "key": "TotalCost", "value": "0.02", "description": "Total cost of the call" },
+                { "key": "HangupCause", "value": "NORMAL_CLEARING", "description": "Hangup cause code" },
+                { "key": "Direction", "value": "outbound", "description": "Call direction" }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/plivo/status?campaignId={{campaignId}}&contactId={{contactId}}&callHistoryId={{callHistoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "plivo", "status"],
+              "query": [
+                { "key": "campaignId", "value": "{{campaignId}}", "description": "Campaign ID for tracking" },
+                { "key": "contactId", "value": "{{contactId}}", "description": "Contact ID in the campaign" },
+                { "key": "callHistoryId", "value": "{{callHistoryId}}", "description": "Call History record ID" }
+              ]
+            },
+            "description": "Plivo Status Callback webhook endpoint.\n\nConfigure this URL as the callback URL when making Plivo outbound calls.\n\nStatus values: ringing, in-progress, completed, busy, failed, timeout, no-answer, cancel, machine\n\nThis webhook:\n1. Updates call history with duration and status\n2. Updates campaign contact status\n3. Triggers scheduler to start next call"
+          }
+        },
+        {
+          "name": "Telnyx Status Callback",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"event_type\": \"call.hangup\",\n    \"id\": \"event-uuid\",\n    \"occurred_at\": \"2026-01-19T10:05:00Z\",\n    \"payload\": {\n      \"call_control_id\": \"call-control-uuid\",\n      \"call_leg_id\": \"leg-uuid\",\n      \"call_session_id\": \"session-uuid\",\n      \"from\": \"+1234567890\",\n      \"to\": \"+0987654321\",\n      \"direction\": \"outgoing\",\n      \"hangup_cause\": \"normal_clearing\",\n      \"hangup_source\": \"caller\",\n      \"start_time\": \"2026-01-19T10:00:00Z\",\n      \"end_time\": \"2026-01-19T10:05:00Z\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/telnyx/status?campaignId={{campaignId}}&contactId={{contactId}}&callHistoryId={{callHistoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook", "telnyx", "status"],
+              "query": [
+                { "key": "campaignId", "value": "{{campaignId}}", "description": "Campaign ID for tracking" },
+                { "key": "contactId", "value": "{{contactId}}", "description": "Contact ID in the campaign" },
+                { "key": "callHistoryId", "value": "{{callHistoryId}}", "description": "Call History record ID" }
+              ]
+            },
+            "description": "Telnyx Status Callback webhook endpoint.\n\nConfigure this URL as the webhook URL for Telnyx call control events.\n\nEvents: call.initiated, call.ringing, call.answered, call.hangup\n\nHangup causes: normal_clearing, user_busy, no_answer, call_rejected, etc.\n\nThis webhook:\n1. Updates call history with duration and status\n2. Updates campaign contact status\n3. Triggers scheduler to start next call"
           }
         }
       ]

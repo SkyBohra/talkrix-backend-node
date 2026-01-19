@@ -106,6 +106,28 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      // Check for paused-time-window campaigns that can be resumed
+      // These are campaigns that have pending contacts and are within their time window
+      const pausedWindowCampaigns = await this.campaignModel.find({
+        status: 'paused-time-window',
+        type: 'outbound',
+        'schedule.scheduledDate': { $exists: true },
+      }).exec();
+
+      this.logger.log(`Scheduler check: Found ${pausedWindowCampaigns.length} paused-time-window campaigns`);
+
+      for (const campaign of pausedWindowCampaigns) {
+        const canResume = this.canResumeCampaignInWindow(campaign);
+        const hasPendingContacts = campaign.contacts.some(c => c.callStatus === 'pending');
+        
+        this.logger.log(`Paused campaign "${campaign.name}": canResume=${canResume}, hasPendingContacts=${hasPendingContacts}`);
+        
+        if (canResume && hasPendingContacts) {
+          this.logger.log(`Resuming paused-time-window campaign: ${campaign.name} (${campaign._id})`);
+          await this.resumePausedWindowCampaign(campaign);
+        }
+      }
+
       // Also process active campaigns (in case server restarted)
       const activeCampaigns = await this.campaignModel.find({
         status: 'active',
@@ -684,14 +706,14 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Handle call ended event - triggered by webhook
-   * This will decrement user's active calls and trigger next call
+   * This will decrement user's active calls, check if campaign is complete, and trigger next call
    */
   async onCallEnded(campaignId: string, callId: string): Promise<void> {
     try {
       // Remove call from tracker
       this.activeCallsTracker.delete(callId);
 
-      // Get campaign to find user
+      // Get campaign to find user and check completion
       const campaign = await this.campaignService.findOne(campaignId);
       if (!campaign) {
         this.logger.warn(`Campaign ${campaignId} not found for call ended event`);
@@ -706,8 +728,21 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         state.activeCalls = Math.max(0, state.activeCalls - 1);
 
         this.logger.log(`Call ended for user ${userId}. Active calls: ${state.activeCalls}/${state.maxConcurrentCalls}`);
+      }
 
-        // Trigger next calls after a short delay
+      // Check if all contacts have been called (no pending, no in-progress)
+      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
+      const inProgressContacts = campaign.contacts.filter(c => c.callStatus === 'in-progress');
+
+      if (pendingContacts.length === 0 && inProgressContacts.length === 0) {
+        // All contacts have been called - mark campaign as completed
+        this.logger.log(`Campaign ${campaign.name} - all contacts called. Marking as completed.`);
+        await this.completeCampaign(campaignId, userId);
+        return; // No need to process more calls for this campaign
+      }
+
+      // If there are still pending contacts, trigger next calls
+      if (state) {
         setTimeout(() => {
           this.processUserCalls(userId).catch(err => {
             this.logger.error(`Error processing next calls after call ended:`, err?.message || err);
@@ -731,14 +766,33 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   private async completeCampaign(campaignId: string, userId: string): Promise<void> {
     try {
-      await this.campaignService.updateStatus(campaignId, 'completed');
+      // Get campaign to calculate final stats
+      const campaign = await this.campaignService.findOne(campaignId);
+      if (campaign) {
+        const completedCount = campaign.contacts.filter(c => c.callStatus === 'completed').length;
+        const failedCount = campaign.contacts.filter(c => c.callStatus === 'failed' || c.callStatus === 'no-answer').length;
+        
+        // Update campaign with final stats and completed status
+        await this.campaignModel.findByIdAndUpdate(campaignId, {
+          status: 'completed',
+          completedAt: new Date(),
+          completedCalls: completedCount + failedCount, // Total calls made
+          successfulCalls: completedCount,
+          failedCalls: failedCount,
+        }).exec();
+
+        this.logger.log(
+          `Campaign "${campaign.name}" completed. ` +
+          `Total: ${campaign.contacts.length}, Successful: ${completedCount}, Failed: ${failedCount}`
+        );
+      } else {
+        await this.campaignService.updateStatus(campaignId, 'completed');
+      }
 
       const state = this.userCallStates.get(userId);
       if (state) {
         state.activeCampaigns.delete(campaignId);
       }
-
-      this.logger.log(`Campaign ${campaignId} completed`);
     } catch (err) {
       this.logger.error(`Error completing campaign ${campaignId}:`, err?.message || err);
     }
@@ -746,15 +800,16 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Complete a campaign due to reaching end time
-   * Mark remaining pending contacts as 'not-called' or keep as pending
+   * Mark as 'paused-time-window' if there are pending contacts (can be resumed next day)
+   * Mark as 'completed' if all contacts have been processed
    */
   private async completeCampaignDueToEndTime(campaignId: string): Promise<void> {
     try {
       const campaign = await this.campaignService.findOne(campaignId);
       if (!campaign) return;
 
-      // Update campaign status to completed
-      await this.campaignService.updateStatus(campaignId, 'completed');
+      // Count remaining pending contacts
+      const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
 
       // Remove from user state
       const state = this.userCallStates.get(campaign.userId);
@@ -762,15 +817,114 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         state.activeCampaigns.delete(campaignId);
       }
 
-      // Count remaining pending contacts
-      const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+      if (pendingCount > 0) {
+        // If there are pending contacts, mark as 'paused-time-window'
+        // This allows the campaign to be resumed in the same time window on subsequent days
+        await this.campaignModel.findByIdAndUpdate(campaignId, {
+          status: 'paused-time-window',
+          pausedReason: 'end-time-reached',
+          lastProcessedAt: new Date(),
+        }).exec();
 
-      this.logger.log(
-        `Campaign "${campaign.name}" completed due to end time. ` +
-        `${pendingCount} contacts were not called.`
-      );
+        this.logger.log(
+          `Campaign "${campaign.name}" paused due to end time. ` +
+          `${pendingCount} contacts pending - can be resumed in the same time window.`
+        );
+      } else {
+        // All contacts processed, mark as completed
+        await this.campaignService.updateStatus(campaignId, 'completed');
+
+        this.logger.log(
+          `Campaign "${campaign.name}" completed - all contacts processed.`
+        );
+      }
     } catch (err) {
       this.logger.error(`Error completing campaign due to end time:`, err?.message || err);
+    }
+  }
+
+  /**
+   * Check if a paused-time-window campaign can be resumed
+   * Returns true if current time is within the campaign's scheduled window
+   */
+  private canResumeCampaignInWindow(campaign: Campaign): boolean {
+    if (!campaign.schedule?.scheduledDate || !campaign.schedule?.scheduledTime) {
+      return false;
+    }
+
+    const timezone = campaign.schedule.timezone || 'UTC';
+    const scheduledTime = campaign.schedule.scheduledTime; // HH:mm format (start time)
+    const endTime = campaign.schedule.endTime; // HH:mm format (end time)
+
+    if (!endTime) {
+      return false; // Need end time to determine window
+    }
+
+    // Get current time in the campaign's timezone
+    const nowInTimezone = this.getCurrentTimeInTimezone(timezone);
+
+    // Parse start and end times
+    const [startHours, startMinutes] = scheduledTime.split(':').map(Number);
+    const [endHours, endMinutes] = endTime.split(':').map(Number);
+
+    // Create time comparison (using today's date)
+    const today = nowInTimezone;
+    const startDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), startHours, startMinutes, 0, 0);
+    let endDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), endHours, endMinutes, 0, 0);
+
+    // Handle case where end time is past midnight
+    if (endDateTime.getTime() < startDateTime.getTime()) {
+      endDateTime.setDate(endDateTime.getDate() + 1);
+    }
+
+    const isAfterStartTime = nowInTimezone.getTime() >= startDateTime.getTime();
+    const isBeforeEndTime = nowInTimezone.getTime() < endDateTime.getTime();
+
+    this.logger.log(
+      `Campaign "${campaign.name}" window check: ` +
+      `timezone=${timezone}, ` +
+      `startTime=${scheduledTime}, ` +
+      `endTime=${endTime}, ` +
+      `nowInTz=${nowInTimezone.getHours().toString().padStart(2, '0')}:${nowInTimezone.getMinutes().toString().padStart(2, '0')}, ` +
+      `isAfterStartTime=${isAfterStartTime}, isBeforeEndTime=${isBeforeEndTime}`
+    );
+
+    return isAfterStartTime && isBeforeEndTime;
+  }
+
+  /**
+   * Resume a paused-time-window campaign
+   */
+  private async resumePausedWindowCampaign(campaign: Campaign): Promise<void> {
+    try {
+      const userId = campaign.userId;
+
+      // Update campaign status to active
+      await this.campaignModel.findByIdAndUpdate(campaign._id, {
+        status: 'active',
+        pausedReason: null,
+        startedAt: new Date(),
+      }).exec();
+
+      // Get or initialize user state
+      let state = this.userCallStates.get(userId);
+      if (!state) {
+        const userCampaigns = await this.campaignModel.find({ userId, status: 'active' }).exec();
+        await this.initializeUserState(userId, userCampaigns);
+        state = this.userCallStates.get(userId);
+      }
+
+      if (state) {
+        state.activeCampaigns.add(campaign._id.toString());
+      }
+
+      // Start processing calls
+      await this.processUserCalls(userId);
+
+      const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+      this.logger.log(`Resumed paused-time-window campaign ${campaign.name} with ${pendingCount} pending contacts`);
+    } catch (err) {
+      this.logger.error(`Error resuming paused-time-window campaign ${campaign._id}:`, err?.message || err);
     }
   }
 
@@ -792,13 +946,17 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Resume a paused campaign
+   * Resume a paused campaign (handles both 'paused' and 'paused-time-window' status)
    */
   async resumeCampaign(campaignId: string): Promise<void> {
     const campaign = await this.campaignService.findOne(campaignId);
-    if (!campaign || campaign.status !== 'paused') return;
+    if (!campaign || (campaign.status !== 'paused' && campaign.status !== 'paused-time-window')) return;
 
-    await this.campaignService.updateStatus(campaignId, 'active');
+    await this.campaignModel.findByIdAndUpdate(campaignId, {
+      status: 'active',
+      pausedReason: null,
+      startedAt: new Date(),
+    }).exec();
 
     let state = this.userCallStates.get(campaign.userId);
     if (!state) {
@@ -817,7 +975,8 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
     // Process calls
     await this.processUserCalls(campaign.userId);
 
-    this.logger.log(`Campaign ${campaignId} resumed`);
+    const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+    this.logger.log(`Campaign ${campaignId} resumed with ${pendingCount} pending contacts`);
   }
 
   /**
@@ -915,5 +1074,156 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         message: err?.message || 'Failed to reset user call state',
       };
     }
+  }
+
+  /**
+   * Get all campaigns that can be resumed in the current time window
+   * Returns campaigns with 'paused-time-window' status that have pending contacts
+   * and are currently within their scheduled time window
+   */
+  async getResumableCampaigns(userId: string): Promise<{
+    campaigns: Array<{
+      _id: string;
+      name: string;
+      status: string;
+      totalContacts: number;
+      pendingContacts: number;
+      completedContacts: number;
+      failedContacts: number;
+      schedule: any;
+      isInWindow: boolean;
+      canResumeNow: boolean;
+    }>;
+    totalPendingContacts: number;
+  }> {
+    // Get all paused-time-window campaigns for this user
+    const pausedCampaigns = await this.campaignModel.find({
+      userId,
+      status: 'paused-time-window',
+      type: 'outbound',
+    }).exec();
+
+    const result = [];
+    let totalPendingContacts = 0;
+
+    for (const campaign of pausedCampaigns) {
+      const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+      const completedCount = campaign.contacts.filter(c => c.callStatus === 'completed').length;
+      const failedCount = campaign.contacts.filter(c => c.callStatus === 'failed' || c.callStatus === 'no-answer').length;
+      
+      const isInWindow = this.canResumeCampaignInWindow(campaign);
+      
+      if (pendingCount > 0) {
+        totalPendingContacts += pendingCount;
+        result.push({
+          _id: campaign._id.toString(),
+          name: campaign.name,
+          status: campaign.status,
+          totalContacts: campaign.contacts.length,
+          pendingContacts: pendingCount,
+          completedContacts: completedCount,
+          failedContacts: failedCount,
+          schedule: campaign.schedule,
+          isInWindow,
+          canResumeNow: isInWindow && pendingCount > 0,
+        });
+      }
+    }
+
+    return {
+      campaigns: result,
+      totalPendingContacts,
+    };
+  }
+
+  /**
+   * Get summary of all campaigns with pending contacts, grouped by status
+   * Useful for showing a dashboard of how many contacts are waiting across all campaigns
+   */
+  async getPendingContactsSummary(userId: string): Promise<{
+    byStatus: Record<string, {
+      campaignCount: number;
+      totalContacts: number;
+      pendingContacts: number;
+      campaigns: Array<{
+        _id: string;
+        name: string;
+        pendingContacts: number;
+        totalContacts: number;
+      }>;
+    }>;
+    totals: {
+      totalCampaigns: number;
+      totalContacts: number;
+      totalPending: number;
+      totalCompleted: number;
+      totalFailed: number;
+    };
+  }> {
+    const allCampaigns = await this.campaignModel.find({
+      userId,
+      type: 'outbound',
+    }).exec();
+
+    const byStatus: Record<string, {
+      campaignCount: number;
+      totalContacts: number;
+      pendingContacts: number;
+      campaigns: Array<{
+        _id: string;
+        name: string;
+        pendingContacts: number;
+        totalContacts: number;
+      }>;
+    }> = {};
+
+    let totalPending = 0;
+    let totalCompleted = 0;
+    let totalFailed = 0;
+    let totalContacts = 0;
+
+    for (const campaign of allCampaigns) {
+      const pendingCount = campaign.contacts.filter(c => c.callStatus === 'pending').length;
+      const completedCount = campaign.contacts.filter(c => c.callStatus === 'completed').length;
+      const failedCount = campaign.contacts.filter(c => c.callStatus === 'failed' || c.callStatus === 'no-answer').length;
+      
+      totalPending += pendingCount;
+      totalCompleted += completedCount;
+      totalFailed += failedCount;
+      totalContacts += campaign.contacts.length;
+
+      if (!byStatus[campaign.status]) {
+        byStatus[campaign.status] = {
+          campaignCount: 0,
+          totalContacts: 0,
+          pendingContacts: 0,
+          campaigns: [],
+        };
+      }
+
+      byStatus[campaign.status].campaignCount++;
+      byStatus[campaign.status].totalContacts += campaign.contacts.length;
+      byStatus[campaign.status].pendingContacts += pendingCount;
+      
+      if (pendingCount > 0) {
+        byStatus[campaign.status].campaigns.push({
+          _id: campaign._id.toString(),
+          name: campaign.name,
+          pendingContacts: pendingCount,
+          totalContacts: campaign.contacts.length,
+        });
+      }
+    }
+
+    return {
+      byStatus,
+      totals: {
+        totalCampaigns: allCampaigns.length,
+        totalContacts,
+        totalPending,
+        totalCompleted,
+        totalFailed,
+      },
+    };
   }
 }
