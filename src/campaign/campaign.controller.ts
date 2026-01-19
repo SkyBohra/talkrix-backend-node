@@ -926,4 +926,54 @@ export class CampaignController {
       return this.responseHelper.error('Failed to fetch campaign state', 500, err?.message || err);
     }
   }
+
+  // Reset user call state - clears stuck active calls
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post('reset-call-state')
+  async resetCallState(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const result = await this.campaignSchedulerService.resetUserCallState(userInfo.userId);
+      
+      if (result.success) {
+        return this.responseHelper.success(result, 'Call state reset successfully');
+      } else {
+        return this.responseHelper.error(result.message, 500);
+      }
+    } catch (err) {
+      this.logger.error('Error resetting call state', err);
+      return this.responseHelper.error('Failed to reset call state', 500, err?.message || err);
+    }
+  }
+
+  // Get user call state - shows current active calls and max concurrent
+  @UseGuards(AuthOrApiKeyGuard)
+  @Get('call-state')
+  async getCallState(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+
+    try {
+      const state = this.campaignSchedulerService.getUserCallState(userInfo.userId);
+      const user = await this.userService.findById(userInfo.userId);
+      const maxConcurrentCalls = user?.settings?.maxConcurrentCalls || 1;
+
+      return this.responseHelper.success({
+        userId: userInfo.userId,
+        activeCalls: state?.activeCalls ?? 0,
+        maxConcurrentCalls: state?.maxConcurrentCalls ?? maxConcurrentCalls,
+        isProcessing: state?.isProcessing ?? false,
+        activeCampaigns: state ? Array.from(state.activeCampaigns) : [],
+      }, 'Call state fetched');
+    } catch (err) {
+      this.logger.error('Error fetching call state', err);
+      return this.responseHelper.error('Failed to fetch call state', 500, err?.message || err);
+    }
+  }
 }

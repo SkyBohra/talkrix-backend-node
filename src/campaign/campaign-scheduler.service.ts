@@ -19,11 +19,22 @@ interface UserCallState {
   activeCampaigns: Set<string>; // Campaign IDs currently being processed
 }
 
+// Track individual active calls for timeout detection
+interface ActiveCallInfo {
+  callId: string;
+  contactId: string;
+  campaignId: string;
+  userId: string;
+  startedAt: Date;
+}
+
 @Injectable()
 export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
   private schedulerInterval: ReturnType<typeof setInterval> | null = null;
   private userCallStates: Map<string, UserCallState> = new Map();
+  private activeCallsTracker: Map<string, ActiveCallInfo> = new Map(); // Track calls by callId for timeout detection
   private readonly SCHEDULER_INTERVAL_MS = 30000; // Check every 30 seconds
+  private readonly CALL_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes timeout for stale calls
 
   constructor(
     @InjectModel(Campaign.name) private campaignModel: Model<Campaign>,
@@ -73,6 +84,9 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkScheduledCampaigns() {
     try {
+      // First, check and cleanup stale calls that haven't received disconnection webhook
+      await this.checkAndCleanupStaleCalls();
+
       // Find all scheduled outbound campaigns
       const scheduledCampaigns = await this.campaignModel.find({
         status: 'scheduled',
@@ -510,6 +524,16 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
       // Increment active calls count for user (across all campaigns)
       userState.activeCalls++;
 
+      // Track this call for timeout detection (will be updated with callId after call creation)
+      const tempTrackingId = `pending_${campaignId}_${contactId}`;
+      this.activeCallsTracker.set(tempTrackingId, {
+        callId: tempTrackingId,
+        contactId,
+        campaignId,
+        userId: campaign.userId,
+        startedAt: new Date(),
+      });
+
       // Create the outbound call
       const callResult = await this.ultravoxService.createOutboundCallWithMedium(
         agent.talkrixAgentId,
@@ -529,6 +553,16 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
       );
 
       if (callResult.statusCode === 201 && callResult.data) {
+        // Remove temporary tracking and add with actual callId
+        this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
+        this.activeCallsTracker.set(callResult.data.callId, {
+          callId: callResult.data.callId,
+          contactId,
+          campaignId,
+          userId: campaign.userId,
+          startedAt: new Date(),
+        });
+
         // Create call history record
         await this.callHistoryService.create({
           agentId: campaign.agentId,
@@ -559,8 +593,9 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.log(`Call initiated for ${contact.name} (${contact.phoneNumber}) in campaign ${campaign.name}`);
       } else {
-        // Call creation failed - decrement counter and mark as failed
+        // Call creation failed - decrement counter, remove tracking, and mark as failed
         userState.activeCalls = Math.max(0, userState.activeCalls - 1);
+        this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
 
         await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
           callNotes: callResult.message || 'Failed to create call',
@@ -571,12 +606,79 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error(`Error initiating call for ${contact.name}:`, err?.message || err);
 
-      // Decrement active calls count on error
+      // Decrement active calls count on error and remove tracking
       userState.activeCalls = Math.max(0, userState.activeCalls - 1);
+      this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
 
       await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
         callNotes: err?.message || 'Unknown error',
       });
+    }
+  }
+
+  /**
+   * Check and cleanup stale calls that have been in-progress for more than 10 minutes
+   * This handles cases where disconnection webhook is not received
+   */
+  private async checkAndCleanupStaleCalls(): Promise<void> {
+    const now = new Date();
+    const staleCalls: ActiveCallInfo[] = [];
+
+    // Find all calls that have exceeded the timeout
+    for (const [callId, callInfo] of this.activeCallsTracker) {
+      const elapsedMs = now.getTime() - callInfo.startedAt.getTime();
+      if (elapsedMs >= this.CALL_TIMEOUT_MS) {
+        staleCalls.push(callInfo);
+      }
+    }
+
+    if (staleCalls.length === 0) {
+      return;
+    }
+
+    this.logger.warn(`Found ${staleCalls.length} stale calls (>10 min without disconnection), cleaning up...`);
+
+    for (const callInfo of staleCalls) {
+      try {
+        // Remove from tracker
+        this.activeCallsTracker.delete(callInfo.callId);
+
+        // Get user state and decrement active calls
+        const state = this.userCallStates.get(callInfo.userId);
+        if (state) {
+          state.activeCalls = Math.max(0, state.activeCalls - 1);
+          this.logger.log(
+            `Released stale call resource for user ${callInfo.userId}. ` +
+            `Active calls: ${state.activeCalls}/${state.maxConcurrentCalls}`
+          );
+        }
+
+        // Update contact status to failed with timeout reason
+        await this.campaignService.updateContactCallStatus(
+          callInfo.campaignId,
+          callInfo.contactId,
+          'failed',
+          {
+            callNotes: 'Call timed out - no disconnection received after 10 minutes',
+          }
+        );
+
+        this.logger.log(
+          `Cleaned up stale call: callId=${callInfo.callId}, campaignId=${callInfo.campaignId}, ` +
+          `contactId=${callInfo.contactId}, elapsed=${Math.round((now.getTime() - callInfo.startedAt.getTime()) / 1000 / 60)} minutes`
+        );
+
+        // Trigger next call processing for this user
+        if (state) {
+          setTimeout(() => {
+            this.processUserCalls(callInfo.userId).catch(err => {
+              this.logger.error(`Error processing next calls after stale cleanup:`, err?.message || err);
+            });
+          }, 1000);
+        }
+      } catch (err) {
+        this.logger.error(`Error cleaning up stale call ${callInfo.callId}:`, err?.message || err);
+      }
     }
   }
 
@@ -586,6 +688,9 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   async onCallEnded(campaignId: string, callId: string): Promise<void> {
     try {
+      // Remove call from tracker
+      this.activeCallsTracker.delete(callId);
+
       // Get campaign to find user
       const campaign = await this.campaignService.findOne(campaignId);
       if (!campaign) {
@@ -747,5 +852,68 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Reset user call state - clears stuck active calls counter
+   * Use this when calls are stuck due to missed webhooks or deployments
+   */
+  async resetUserCallState(userId: string): Promise<{ success: boolean; message: string; previousState?: any }> {
+    try {
+      const existingState = this.userCallStates.get(userId);
+      const previousState = existingState ? {
+        activeCalls: existingState.activeCalls,
+        maxConcurrentCalls: existingState.maxConcurrentCalls,
+        activeCampaigns: Array.from(existingState.activeCampaigns),
+      } : null;
+
+      // Clear all tracked calls for this user
+      for (const [callId, callInfo] of this.activeCallsTracker) {
+        if (callInfo.userId === userId) {
+          this.activeCallsTracker.delete(callId);
+        }
+      }
+
+      // Reset the user state
+      if (existingState) {
+        existingState.activeCalls = 0;
+        existingState.isProcessing = false;
+        this.logger.log(`Reset user call state for ${userId}. Previous active calls: ${previousState?.activeCalls}`);
+      }
+
+      // Also reset any in-progress contacts in active campaigns to pending
+      const activeCampaigns = await this.campaignModel.find({
+        userId,
+        status: 'active',
+        type: 'outbound',
+      }).exec();
+
+      let resetContactsCount = 0;
+      for (const campaign of activeCampaigns) {
+        for (const contact of campaign.contacts) {
+          if (contact.callStatus === 'in-progress') {
+            await this.campaignService.updateContactCallStatus(
+              campaign._id.toString(),
+              contact._id!.toString(),
+              'failed',
+              { callNotes: 'Reset due to manual state clear' }
+            );
+            resetContactsCount++;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: `User call state reset successfully. Reset ${resetContactsCount} in-progress contacts.`,
+        previousState,
+      };
+    } catch (err) {
+      this.logger.error(`Error resetting user call state for ${userId}:`, err?.message || err);
+      return {
+        success: false,
+        message: err?.message || 'Failed to reset user call state',
+      };
+    }
   }
 }
