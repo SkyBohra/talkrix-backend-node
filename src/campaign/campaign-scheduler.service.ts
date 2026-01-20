@@ -395,6 +395,7 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Process calls for a user (across all their active campaigns)
    * Respects user's maxConcurrentCalls limit across ALL campaigns combined
+   * Uses atomic operations to prevent duplicate calls
    */
   async processUserCalls(userId: string): Promise<void> {
     const state = this.userCallStates.get(userId);
@@ -403,8 +404,9 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Prevent concurrent processing
+    // Prevent concurrent processing for this user
     if (state.isProcessing) {
+      this.logger.log(`User ${userId}: Already processing, skipping`);
       return;
     }
 
@@ -425,51 +427,62 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Get all active campaigns for this user
+      // Get all active campaign IDs for this user
       const activeCampaigns = await this.campaignModel.find({
         userId,
         status: 'active',
         type: 'outbound',
-      }).exec();
+      }).select('_id name').exec();
 
       if (activeCampaigns.length === 0) {
         this.logger.log(`User ${userId}: No active campaigns`);
         return;
       }
 
-      // Collect all pending contacts from all campaigns (round-robin for fairness)
-      const pendingContactsWithCampaign: Array<{
-        campaign: Campaign;
-        contact: CampaignContact;
-      }> = [];
+      this.logger.log(`User ${userId}: Found ${activeCampaigns.length} active campaigns, ${availableSlots} slots available`);
 
-      // Round-robin: take one contact from each campaign at a time
-      let hasMore = true;
-      let index = 0;
-      while (hasMore && pendingContactsWithCampaign.length < availableSlots) {
-        hasMore = false;
-        for (const campaign of activeCampaigns) {
-          const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
-          if (index < pendingContacts.length) {
-            pendingContactsWithCampaign.push({ campaign, contact: pendingContacts[index] });
-            hasMore = true;
-            if (pendingContactsWithCampaign.length >= availableSlots) break;
-          }
+      // Use atomic claim to get contacts - round robin across campaigns
+      // This prevents race conditions where same contact is picked twice
+      let claimsProcessed = 0;
+      let campaignIndex = 0;
+      const maxAttempts = availableSlots * activeCampaigns.length; // Prevent infinite loop
+      let attempts = 0;
+
+      while (claimsProcessed < availableSlots && attempts < maxAttempts) {
+        attempts++;
+        const campaign = activeCampaigns[campaignIndex % activeCampaigns.length];
+        campaignIndex++;
+
+        // Atomically claim a pending contact from this campaign
+        const claimed = await this.campaignService.claimPendingContact(campaign._id.toString());
+        
+        if (claimed) {
+          claimsProcessed++;
+          this.logger.log(
+            `User ${userId}: Claimed contact ${claimed.contact.name} (${claimed.contact.phoneNumber}) ` +
+            `from campaign ${campaign.name}, slot ${claimsProcessed}/${availableSlots}`
+          );
+
+          // Initiate the call (contact is already marked as in-progress atomically)
+          await this.initiateClaimedCall(claimed.campaign, claimed.contact, claimed.contactId, state);
         }
-        index++;
+
+        // If we've gone through all campaigns once without finding pending contacts, break
+        if (campaignIndex >= activeCampaigns.length && claimsProcessed === 0) {
+          break;
+        }
       }
 
-      if (pendingContactsWithCampaign.length === 0) {
-        // Check if all campaigns are done
-        await this.checkAndCompleteCampaigns(activeCampaigns);
-        return;
-      }
-
-      this.logger.log(`User ${userId}: Processing ${pendingContactsWithCampaign.length} calls (${state.activeCalls}/${state.maxConcurrentCalls} active)`);
-
-      // Initiate calls
-      for (const { campaign, contact } of pendingContactsWithCampaign) {
-        await this.initiateCall(campaign, contact, state);
+      if (claimsProcessed === 0) {
+        // No pending contacts found, check if campaigns should be completed
+        const fullCampaigns = await this.campaignModel.find({
+          userId,
+          status: 'active',
+          type: 'outbound',
+        }).exec();
+        await this.checkAndCompleteCampaigns(fullCampaigns);
+      } else {
+        this.logger.log(`User ${userId}: Initiated ${claimsProcessed} calls`);
       }
     } catch (err) {
       this.logger.error(`Error processing calls for user ${userId}:`, err?.message || err);
@@ -483,8 +496,12 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkAndCompleteCampaigns(campaigns: Campaign[]): Promise<void> {
     for (const campaign of campaigns) {
-      const pendingContacts = campaign.contacts.filter(c => c.callStatus === 'pending');
-      const inProgressContacts = campaign.contacts.filter(c => c.callStatus === 'in-progress');
+      // Re-fetch to get latest status
+      const freshCampaign = await this.campaignModel.findById(campaign._id).exec();
+      if (!freshCampaign) continue;
+
+      const pendingContacts = freshCampaign.contacts.filter(c => c.callStatus === 'pending');
+      const inProgressContacts = freshCampaign.contacts.filter(c => c.callStatus === 'in-progress');
 
       if (pendingContacts.length === 0 && inProgressContacts.length === 0) {
         await this.completeCampaign(campaign._id.toString(), campaign.userId);
@@ -493,7 +510,159 @@ export class CampaignSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Initiate a call to a contact
+   * Initiate a call for an already-claimed contact (atomically marked as in-progress)
+   * This method assumes contact is already in 'in-progress' status from atomic claim
+   */
+  private async initiateClaimedCall(
+    campaign: Campaign,
+    contact: CampaignContact,
+    contactId: string,
+    userState: UserCallState
+  ): Promise<void> {
+    const campaignId = campaign._id.toString();
+
+    try {
+      // Validate outbound configuration
+      if (!campaign.outboundProvider || !campaign.outboundPhoneNumber) {
+        this.logger.error(`Campaign ${campaignId} missing outbound configuration`);
+        await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
+          callNotes: 'Missing outbound phone configuration',
+        });
+        return;
+      }
+
+      // Get user telephony settings
+      const user = await this.userService.findById(campaign.userId);
+      if (!user || !user.settings?.telephony) {
+        this.logger.error(`User ${campaign.userId} telephony settings not found`);
+        await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
+          callNotes: 'User telephony settings not configured',
+        });
+        return;
+      }
+
+      // Get agent
+      const agent = await this.agentService.findOne(campaign.agentId);
+      if (!agent) {
+        this.logger.error(`Agent ${campaign.agentId} not found for campaign ${campaignId}`);
+        await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
+          callNotes: 'Agent not found',
+        });
+        return;
+      }
+
+      const telephony = user.settings.telephony;
+
+      // Contact is already marked as in-progress from atomic claim
+      // Increment active calls count for user (across all campaigns)
+      userState.activeCalls++;
+
+      // Track this call for timeout detection (will be updated with actual callId after creation)
+      const tempTrackingId = `pending_${campaignId}_${contactId}`;
+      this.activeCallsTracker.set(tempTrackingId, {
+        callId: tempTrackingId,
+        contactId,
+        campaignId,
+        userId: campaign.userId,
+        startedAt: new Date(),
+      });
+
+      // Create the outbound call to get actual Ultravox callId
+      const callResult = await this.ultravoxService.createOutboundCallWithMedium(
+        agent.talkrixAgentId,
+        {
+          provider: campaign.outboundProvider,
+          fromPhoneNumber: campaign.outboundPhoneNumber,
+          toPhoneNumber: contact.phoneNumber,
+          maxDuration: '600s',
+          recordingEnabled: true,
+          twilioAccountSid: telephony.twilioAccountSid,
+          twilioAuthToken: telephony.twilioAuthToken,
+          plivoAuthId: telephony.plivoAuthId,
+          plivoAuthToken: telephony.plivoAuthToken,
+          telnyxApiKey: telephony.telnyxApiKey,
+          telnyxConnectionId: telephony.telnyxConnectionId,
+          // Pass tracking info for webhook callback
+          campaignId: campaignId,
+          contactId: contactId,
+        }
+      );
+
+      if (callResult.statusCode === 201 && callResult.data) {
+        const ultravoxCallId = callResult.data.callId;
+        
+        // Remove temporary tracking and add with actual callId
+        this.activeCallsTracker.delete(tempTrackingId);
+        this.activeCallsTracker.set(ultravoxCallId, {
+          callId: ultravoxCallId,
+          contactId,
+          campaignId,
+          userId: campaign.userId,
+          startedAt: new Date(),
+        });
+
+        // Create call history with actual Ultravox callId
+        const callHistory = await this.callHistoryService.create({
+          agentId: campaign.agentId,
+          userId: campaign.userId,
+          talkrixCallId: ultravoxCallId,
+          callType: 'outbound',
+          agentName: agent.name,
+          customerName: contact.name,
+          customerPhone: contact.phoneNumber,
+          recordingEnabled: true,
+          joinUrl: callResult.data.joinUrl,
+          status: 'in-progress',
+          callData: callResult.data,
+          metadata: {
+            campaignId: campaign._id.toString(),
+            campaignName: campaign.name,
+            contactId: contactId,
+            provider: campaign.outboundProvider,
+            fromPhoneNumber: campaign.outboundPhoneNumber,
+          },
+        });
+
+        // Update contact with call ID and callHistoryId
+        await this.campaignService.updateContactCallStatus(
+          campaignId,
+          contactId,
+          'in-progress',
+          { 
+            callId: ultravoxCallId,
+            callHistoryId: callHistory._id.toString(),
+          }
+        );
+
+        this.logger.log(`Call initiated for ${contact.name} (${contact.phoneNumber}) in campaign ${campaign.name}, callId: ${ultravoxCallId}`);
+      } else {
+        // Call creation failed - decrement counter, remove tracking, and mark as failed
+        userState.activeCalls = Math.max(0, userState.activeCalls - 1);
+        this.activeCallsTracker.delete(tempTrackingId);
+        
+        // Mark contact as failed
+        await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
+          callNotes: callResult.message || 'Failed to create call',
+        });
+
+        this.logger.error(`Failed to create call for ${contact.name}: ${callResult.message}`);
+      }
+    } catch (err) {
+      this.logger.error(`Error initiating call for ${contact.name}:`, err?.message || err);
+
+      // Decrement active calls count on error and remove tracking
+      userState.activeCalls = Math.max(0, userState.activeCalls - 1);
+      this.activeCallsTracker.delete(`pending_${campaignId}_${contactId}`);
+
+      await this.campaignService.updateContactCallStatus(campaignId, contactId, 'failed', {
+        callNotes: err?.message || 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Initiate a call to a contact (DEPRECATED - use initiateClaimedCall instead)
+   * Kept for backward compatibility with manual campaign operations
    */
   private async initiateCall(
     campaign: Campaign,

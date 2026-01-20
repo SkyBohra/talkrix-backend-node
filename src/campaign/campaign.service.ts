@@ -310,4 +310,82 @@ export class CampaignService {
       successRate,
     };
   }
+
+  /**
+   * Atomically claim a pending contact for calling
+   * This uses MongoDB's findOneAndUpdate with query conditions to ensure
+   * only ONE process can claim a contact (prevents duplicate calls)
+   * 
+   * Returns the contact that was claimed, or null if no pending contacts
+   */
+  async claimPendingContact(campaignId: string): Promise<{
+    campaign: Campaign;
+    contact: CampaignContact;
+    contactId: string;
+  } | null> {
+    // Use findOneAndUpdate with arrayFilters to atomically find and update
+    // a contact that is CURRENTLY pending
+    const campaign = await this.campaignModel.findOneAndUpdate(
+      {
+        _id: campaignId,
+        'contacts.callStatus': 'pending', // Only campaigns with pending contacts
+      },
+      {
+        $set: {
+          'contacts.$[elem].callStatus': 'in-progress',
+          'contacts.$[elem].calledAt': new Date(),
+        },
+      },
+      {
+        new: false, // Return the document BEFORE the update (to get original contact info)
+        arrayFilters: [{ 'elem.callStatus': 'pending' }],
+      }
+    ).exec();
+
+    if (!campaign) {
+      return null;
+    }
+
+    // Find the contact that was pending (now it's in-progress)
+    const pendingContact = campaign.contacts.find(c => c.callStatus === 'pending');
+    if (!pendingContact || !pendingContact._id) {
+      return null;
+    }
+
+    // Get the updated campaign to return
+    const updatedCampaign = await this.campaignModel.findById(campaignId).exec();
+    if (!updatedCampaign) {
+      return null;
+    }
+
+    // Find the contact in updated campaign (now in-progress)
+    const claimedContact = updatedCampaign.contacts.find(
+      c => c._id?.toString() === pendingContact._id?.toString()
+    );
+
+    if (!claimedContact) {
+      return null;
+    }
+
+    return {
+      campaign: updatedCampaign,
+      contact: claimedContact,
+      contactId: pendingContact._id.toString(),
+    };
+  }
+
+  /**
+   * Reset contact status back to pending (used when call initiation fails before API call)
+   */
+  async resetContactToPending(campaignId: string, contactId: string): Promise<void> {
+    await this.campaignModel.findOneAndUpdate(
+      { _id: campaignId, 'contacts._id': contactId },
+      {
+        $set: {
+          'contacts.$.callStatus': 'pending',
+          'contacts.$.calledAt': null,
+        },
+      }
+    ).exec();
+  }
 }
