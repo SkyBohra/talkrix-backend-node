@@ -75,6 +75,11 @@ export class CampaignController {
         return this.responseHelper.error('Schedule is required for outbound campaigns', 400);
       }
 
+      // Validate contacts for outbound campaigns - must have at least one contact
+      if (campaignData.type === 'outbound' && (!campaignData.contacts || campaignData.contacts.length === 0)) {
+        return this.responseHelper.error('Contacts are required for outbound campaigns. Please upload a file with valid contacts (name and phone number).', 400);
+      }
+
       const campaign = await this.campaignService.create({
         ...campaignData,
         userId: userInfo.userId,
@@ -1030,6 +1035,181 @@ export class CampaignController {
     } catch (err) {
       this.logger.error('Error fetching campaign state', err);
       return this.responseHelper.error('Failed to fetch campaign state', 500, err?.message || err);
+    }
+  }
+
+  // API Trigger: Add contact and immediately trigger a call
+  // This endpoint allows external systems to push contacts via API and trigger calls instantly
+  // Works for both 'ondemand' and 'outbound' campaign types
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post(':id/generate-instant-call')
+  async apiTriggerCall(
+    @Param('id') id: string,
+    @Body() body: { 
+      name: string; 
+      phoneNumber: string;
+      metadata?: Record<string, any>; // Optional custom metadata
+    },
+    @Req() req: any,
+  ) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized - Valid API key required', 401);
+    }
+
+    try {
+      // Validate required fields
+      if (!body.name || !body.phoneNumber) {
+        return this.responseHelper.error('Name and phoneNumber are required', 400);
+      }
+
+      // Get the campaign
+      const campaign = await this.campaignService.findOne(id);
+      if (!campaign) {
+        return this.responseHelper.error('Campaign not found', 404);
+      }
+
+      // Verify ownership
+      if (campaign.userId !== userInfo.userId) {
+        return this.responseHelper.error('Unauthorized - Campaign does not belong to this user', 403);
+      }
+
+      // Only allow ondemand and outbound campaigns
+      if (campaign.type !== 'ondemand' && campaign.type !== 'outbound') {
+        return this.responseHelper.error('API trigger is only available for ondemand and outbound campaigns', 400);
+      }
+
+      // Check if API trigger is enabled for this campaign
+      if (!campaign.apiTriggerEnabled) {
+        return this.responseHelper.error('API trigger is not enabled for this campaign. Enable it in campaign settings.', 403);
+      }
+
+      // Verify outbound phone number is configured
+      if (!campaign.outboundProvider || !campaign.outboundPhoneNumber) {
+        return this.responseHelper.error('Outbound phone number is not configured for this campaign', 400);
+      }
+
+      // Get user telephony settings
+      const user = await this.userService.findById(userInfo.userId);
+      if (!user) {
+        return this.responseHelper.error('User not found', 404);
+      }
+
+      const telephony = user.settings?.telephony;
+      if (!telephony) {
+        return this.responseHelper.error('Telephony settings not configured', 400);
+      }
+
+      // Get agent for this campaign
+      const agent = await this.agentService.findOne(campaign.agentId);
+      if (!agent) {
+        return this.responseHelper.error('Agent not found for this campaign', 404);
+      }
+
+      // Add the contact to the campaign
+      const newContact = {
+        name: body.name.trim(),
+        phoneNumber: body.phoneNumber.trim(),
+        callStatus: 'pending' as const,
+      };
+
+      const updatedCampaign = await this.campaignService.addContacts(id, [newContact]);
+      if (!updatedCampaign) {
+        return this.responseHelper.error('Failed to add contact to campaign', 500);
+      }
+
+      // Find the newly added contact (it will be the last one with matching phone number)
+      const addedContact = updatedCampaign.contacts
+        .filter(c => c.phoneNumber === newContact.phoneNumber && c.name === newContact.name)
+        .pop();
+
+      if (!addedContact || !addedContact._id) {
+        return this.responseHelper.error('Failed to find added contact', 500);
+      }
+
+      // Update contact status to in-progress
+      await this.campaignService.updateContactCallStatus(id, addedContact._id.toString(), 'in-progress');
+
+      // Create the call with the selected provider
+      const callResult = await this.ultravoxService.createOutboundCallWithMedium(
+        agent.talkrixAgentId,
+        {
+          provider: campaign.outboundProvider!,
+          fromPhoneNumber: campaign.outboundPhoneNumber!,
+          toPhoneNumber: addedContact.phoneNumber,
+          maxDuration: '600s',
+          recordingEnabled: true,
+          // Pass credentials based on provider
+          twilioAccountSid: telephony.twilioAccountSid,
+          twilioAuthToken: telephony.twilioAuthToken,
+          plivoAuthId: telephony.plivoAuthId,
+          plivoAuthToken: telephony.plivoAuthToken,
+          telnyxApiKey: telephony.telnyxApiKey,
+          telnyxConnectionId: telephony.telnyxConnectionId,
+        }
+      );
+
+      if (callResult.statusCode === 201 && callResult.data) {
+        // Create call history record
+        const callHistory = await this.callHistoryService.create({
+          agentId: campaign.agentId,
+          userId: userInfo.userId,
+          talkrixCallId: callResult.data.callId,
+          callType: 'outbound',
+          agentName: agent.name,
+          customerName: addedContact.name,
+          customerPhone: addedContact.phoneNumber,
+          recordingEnabled: true,
+          joinUrl: callResult.data.joinUrl,
+          callData: callResult.data,
+          metadata: {
+            campaignId: campaign._id,
+            campaignName: campaign.name,
+            provider: campaign.outboundProvider,
+            fromPhoneNumber: campaign.outboundPhoneNumber,
+            apiTriggered: true,
+            customMetadata: body.metadata,
+          },
+        });
+
+        // Update contact with call ID and history reference
+        await this.campaignService.updateContactCallStatus(
+          id,
+          addedContact._id.toString(),
+          'in-progress',
+          { 
+            callId: callResult.data.callId,
+            callHistoryId: callHistory._id?.toString(),
+          }
+        );
+
+        this.logger.log(`API Trigger: Call initiated for ${addedContact.name} (${addedContact.phoneNumber}) in campaign ${campaign.name}`);
+
+        return this.responseHelper.success({
+          contactId: addedContact._id.toString(),
+          contactName: addedContact.name,
+          phoneNumber: addedContact.phoneNumber,
+          callId: callResult.data.callId,
+          joinUrl: callResult.data.joinUrl,
+          callHistoryId: callHistory._id?.toString(),
+          campaignId: campaign._id,
+          campaignName: campaign.name,
+        }, 'Call triggered successfully', 201);
+      } else {
+        // Call creation failed - update contact status
+        await this.campaignService.updateContactCallStatus(id, addedContact._id.toString(), 'failed');
+        
+        this.logger.error(`API Trigger: Failed to create call for ${addedContact.name}: ${callResult.message}`);
+        
+        return this.responseHelper.error(
+          callResult.message || 'Failed to create call',
+          callResult.statusCode || 500,
+          { contactId: addedContact._id.toString() }
+        );
+      }
+    } catch (err) {
+      this.logger.error('Error in API trigger call', err);
+      return this.responseHelper.error('Failed to trigger call', 500, err?.message || err);
     }
   }
 }

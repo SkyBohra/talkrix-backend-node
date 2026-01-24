@@ -116,6 +116,10 @@ export class Campaign extends Document {
   @Prop()
   outboundPhoneNumber?: string; // Selected phone number for outbound calls
 
+  // API Integration settings
+  @Prop({ default: false })
+  apiTriggerEnabled: boolean; // Enable API endpoint to add contacts and trigger calls
+
   @Prop({ default: true })
   isActive: boolean;
 }
