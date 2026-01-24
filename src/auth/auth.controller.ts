@@ -66,6 +66,7 @@ export class AuthController {
         apiKey: user.apiKey,
         name: user.name,
         email: user.email,
+        hasCompletedTour: user.hasCompletedTour ?? false,
       }, 'Login successful');
     } catch (err) {
       this.logger.error('Login failed', err);
@@ -84,10 +85,32 @@ export class AuthController {
         apiKey: user.apiKey,
         name: user.name,
         email: user.email,
+        hasCompletedTour: false,
       }, 'Registration successful', 201);
     } catch (err) {
       this.logger.error('Registration failed', err);
       return this.responseHelper.error('Registration failed', 400, err?.message || err);
+    }
+  }
+
+  /**
+   * Mark dashboard tour as completed
+   * POST /auth/complete-tour
+   */
+  @UseGuards(AuthOrApiKeyGuard)
+  @Post('complete-tour')
+  async completeTour(@Req() req: any) {
+    const userInfo = this.getUserFromRequest(req);
+    if (!userInfo || !userInfo.userId) {
+      return this.responseHelper.error('Unauthorized', 401);
+    }
+    try {
+      await this.userService.markTourCompleted(userInfo.userId);
+      this.logger.log(`Tour completed for user: ${userInfo.userId}`);
+      return this.responseHelper.success({ hasCompletedTour: true }, 'Tour marked as completed');
+    } catch (err) {
+      this.logger.error('Failed to mark tour as completed', err);
+      return this.responseHelper.error('Failed to mark tour as completed', 500, err?.message || err);
     }
   }
 }

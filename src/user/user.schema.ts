@@ -78,6 +78,10 @@ export class User extends Document {
   @Prop({ default: 1 })
   maxCorpusLimit: number;
 
+  // Track if user has completed the dashboard tour
+  @Prop({ default: false })
+  hasCompletedTour: boolean;
+
   // User Settings - contains all configurable settings
   @Prop({ type: UserSettingsSchema, default: () => ({}) })
   settings: UserSettings;

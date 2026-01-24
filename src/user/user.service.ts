@@ -141,4 +141,15 @@ export class UserService {
       { new: true },
     );
   }
+
+  /**
+   * Mark dashboard tour as completed
+   */
+  async markTourCompleted(userId: string) {
+    return this.userModel.findByIdAndUpdate(
+      userId,
+      { hasCompletedTour: true },
+      { new: true },
+    );
+  }
 }
