@@ -211,16 +211,35 @@ export class WebhookController {
         endReason: call.endReason,
       };
 
+      // Determine if this is a missed/failed call based on endReason
+      const isNoAnswer = call.endReason === 'unjoined' || call.endReason === 'timeout';
+      const isFailed = call.endReason === 'connection_error' || call.endReason === 'system_error';
+
+      if (isNoAnswer) {
+        updateData.status = 'missed';
+      } else if (isFailed) {
+        updateData.status = 'failed';
+      }
+
       if (durationSeconds > 0) {
         updateData.durationSeconds = durationSeconds;
       }
 
+      // Use summaries from webhook if available, otherwise add default for missed/failed
       if (call.shortSummary) {
         updateData.shortSummary = call.shortSummary;
+      } else if (isNoAnswer) {
+        updateData.shortSummary = 'Call not answered';
+      } else if (isFailed) {
+        updateData.shortSummary = `Call failed: ${call.endReason}`;
       }
 
       if (call.summary) {
         updateData.summary = call.summary;
+      } else if (isNoAnswer) {
+        updateData.summary = 'The call was not answered by the recipient. The phone rang but no one picked up. Consider retrying at a different time.';
+      } else if (isFailed) {
+        updateData.summary = `The call could not be completed. Reason: ${call.endReason}. Please check the phone number and try again.`;
       }
 
       if (billedDuration) {
@@ -477,13 +496,24 @@ export class WebhookController {
 
       // Update call history
       if (resolvedCallHistoryId) {
-        await this.callHistoryService.update(resolvedCallHistoryId, {
+        const updateData: any = {
           status: callStatus === 'no-answer' ? 'missed' : callStatus,
           endedAt: new Date(),
           durationSeconds,
           endReason: endReason as any,
           billedDuration: durationSeconds > 0 ? `${Math.ceil(durationSeconds / 60)}m` : '0m',
-        });
+        };
+
+        // Add summary for missed/no-answer calls
+        if (callStatus === 'no-answer') {
+          updateData.shortSummary = 'Call not answered';
+          updateData.summary = 'The call was not answered by the recipient. The phone rang but no one picked up. Consider retrying at a different time.';
+        } else if (callStatus === 'failed') {
+          updateData.shortSummary = `Call failed: ${endReason}`;
+          updateData.summary = `The call could not be completed. Reason: ${endReason}. Please check the phone number and try again.`;
+        }
+
+        await this.callHistoryService.update(resolvedCallHistoryId, updateData);
         this.logger.log(`Updated call history ${resolvedCallHistoryId} via Twilio webhook`);
       }
 
@@ -626,7 +656,7 @@ export class WebhookController {
 
       // Update call history
       if (callHistoryId) {
-        await this.callHistoryService.update(callHistoryId, {
+        const updateData: any = {
           status: callStatus === 'no-answer' ? 'missed' : callStatus,
           endedAt: payload.EndTime ? new Date(payload.EndTime) : new Date(),
           durationSeconds,
@@ -640,7 +670,18 @@ export class WebhookController {
             plivoTotalCost: payload.TotalCost,
             plivoBillRate: payload.BillRate,
           },
-        });
+        };
+
+        // Add summary for missed/no-answer calls
+        if (callStatus === 'no-answer') {
+          updateData.shortSummary = 'Call not answered';
+          updateData.summary = 'The call was not answered by the recipient. The phone rang but no one picked up. Consider retrying at a different time.';
+        } else if (callStatus === 'failed') {
+          updateData.shortSummary = `Call failed: ${endReason}`;
+          updateData.summary = `The call could not be completed. Reason: ${endReason}. Please check the phone number and try again.`;
+        }
+
+        await this.callHistoryService.update(callHistoryId, updateData);
         this.logger.log(`Updated call history ${callHistoryId} via Plivo webhook`);
       }
 
@@ -786,7 +827,7 @@ export class WebhookController {
 
       // Update call history
       if (callHistoryId) {
-        await this.callHistoryService.update(callHistoryId, {
+        const updateData: any = {
           status: callStatus === 'no-answer' ? 'missed' : callStatus,
           endedAt: payload.end_time ? new Date(payload.end_time) : new Date(),
           durationSeconds,
@@ -797,7 +838,18 @@ export class WebhookController {
             telnyxHangupCause: hangupCause,
             telnyxHangupSource: hangupSource,
           },
-        });
+        };
+
+        // Add summary for missed/no-answer calls
+        if (callStatus === 'no-answer') {
+          updateData.shortSummary = 'Call not answered';
+          updateData.summary = 'The call was not answered by the recipient. The phone rang but no one picked up. Consider retrying at a different time.';
+        } else if (callStatus === 'failed') {
+          updateData.shortSummary = `Call failed: ${endReason}`;
+          updateData.summary = `The call could not be completed. Reason: ${endReason}. Please check the phone number and try again.`;
+        }
+
+        await this.callHistoryService.update(callHistoryId, updateData);
         this.logger.log(`Updated call history ${callHistoryId} via Telnyx webhook`);
       }
 
