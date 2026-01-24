@@ -113,6 +113,19 @@ export class CampaignService {
     contactId: string,
     contactData: Partial<CampaignContact>
   ): Promise<Campaign | null> {
+    // First check if contact is locked
+    const campaign = await this.campaignModel.findOne({
+      _id: campaignId,
+      'contacts._id': contactId,
+    }).exec();
+    
+    if (campaign) {
+      const contact = campaign.contacts.find(c => c._id?.toString() === contactId);
+      if (contact?.isLocked) {
+        throw new Error('Contact is locked and cannot be modified. Calls have been triggered for this contact.');
+      }
+    }
+
     return this.campaignModel.findOneAndUpdate(
       { _id: campaignId, 'contacts._id': contactId },
       { $set: { 'contacts.$': { ...contactData, _id: contactId } } },
@@ -122,6 +135,19 @@ export class CampaignService {
 
   // Delete a contact from a campaign
   async deleteContact(campaignId: string, contactId: string): Promise<Campaign | null> {
+    // First check if contact is locked
+    const existingCampaign = await this.campaignModel.findOne({
+      _id: campaignId,
+      'contacts._id': contactId,
+    }).exec();
+    
+    if (existingCampaign) {
+      const contact = existingCampaign.contacts.find(c => c._id?.toString() === contactId);
+      if (contact?.isLocked) {
+        throw new Error('Contact is locked and cannot be deleted. Calls have been triggered for this contact.');
+      }
+    }
+
     const campaign = await this.campaignModel.findByIdAndUpdate(
       campaignId,
       { $pull: { contacts: { _id: contactId } } },

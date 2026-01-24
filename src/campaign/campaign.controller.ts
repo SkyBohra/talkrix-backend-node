@@ -1111,6 +1111,7 @@ export class CampaignController {
         name: body.name.trim(),
         phoneNumber: body.phoneNumber.trim(),
         callStatus: 'pending' as const,
+        isLocked: true, // Lock contact when created via API trigger
       };
 
       const updatedCampaign = await this.campaignService.addContacts(id, [newContact]);
@@ -1131,6 +1132,7 @@ export class CampaignController {
       await this.campaignService.updateContactCallStatus(id, addedContact._id.toString(), 'in-progress');
 
       // Create the call with the selected provider
+      // Pass campaignId and contactId for webhook tracking
       const callResult = await this.ultravoxService.createOutboundCallWithMedium(
         agent.talkrixAgentId,
         {
@@ -1146,6 +1148,9 @@ export class CampaignController {
           plivoAuthToken: telephony.plivoAuthToken,
           telnyxApiKey: telephony.telnyxApiKey,
           telnyxConnectionId: telephony.telnyxConnectionId,
+          // Pass tracking info for webhook callbacks
+          campaignId: id,
+          contactId: addedContact._id.toString(),
         }
       );
 
@@ -1190,7 +1195,6 @@ export class CampaignController {
           contactName: addedContact.name,
           phoneNumber: addedContact.phoneNumber,
           callId: callResult.data.callId,
-          joinUrl: callResult.data.joinUrl,
           callHistoryId: callHistory._id?.toString(),
           campaignId: campaign._id,
           campaignName: campaign.name,

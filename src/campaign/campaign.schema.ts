@@ -29,6 +29,9 @@ export class CampaignContact {
 
   @Prop()
   callNotes?: string;
+
+  @Prop({ default: false })
+  isLocked?: boolean; // When true, contact cannot be updated or deleted (set when call is triggered via API)
 }
 
 export const CampaignContactSchema = SchemaFactory.createForClass(CampaignContact);
