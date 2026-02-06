@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Agent, AgentSchema } from './agent.schema';
 import { AgentService } from './agent.service';
 import { AgentController } from './agent.controller';
+import { DemoController } from './demo.controller';
 import { UltravoxService } from './ultravox.service';
 import { UserModule } from '../user/user.module';
 import { SharedModule } from '../shared.module';
@@ -28,7 +29,7 @@ import { CallHistoryModule } from '../call-history/call-history.module';
     forwardRef(() => CallHistoryModule),
   ],
   providers: [AgentService, UltravoxService],
-  controllers: [AgentController],
+  controllers: [AgentController, DemoController],
   exports: [AgentService, UltravoxService],
 })
 export class AgentModule {}
